@@ -81,11 +81,13 @@ cmake_install.cmake
 .deps
 *install_manifest.txt
 CMakeDoxygenDefaults.cmake
-gTest_version*.cmake
-gTest_MathCore*.cmake
+gTest_*.cmake
 CTestTestfile.cmake
 DSD_version.cxx
 gTest_version.h
+simple_plot.png
+
+googletest/googletest/generated
 
 #--------------- DOXYFILE
 doc/html

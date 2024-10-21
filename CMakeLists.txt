@@ -153,55 +153,17 @@ endif(!${COMPILER_SUPPORTS_CXX17})
 #-------------------- LIST SOURCE FILE
 
 file(GLOB CORE_SRC "src/*.cxx")
-file(GLOB GEN_SRC "${CMAKE_CURRENT_BINARY_DIR}/src/*.cxx")
 file(GLOB CORE_HEADER "include/DSTdisplay/*.h")
-file(GLOB GEN_HEADER "${CMAKE_CURRENT_BINARY_DIR}/test/*.h")
 file(GLOB TEST_SRC "test/*.cxx")
+file(GLOB TEST_UTIL "util/test_*.cxx")
 
 set(HEADER_FILES ${CORE_HEADER})
 
-#-------------------- Configuration de la bibliothèque
-
-add_library(
-    DSTdisplay
-    SHARED
-    ${CORE_SRC}
-    ${CORE_HEADER}
-    ${version_file}
-)
-
-#-------------------- Configuration des test
-add_subdirectory(googletest)
-include_directories(${PARENT_PATH_OF_GTEST}/googltest/googltest/include)
-enable_testing()
-
-foreach( test_source_file ${TEST_SRC} )
-	get_filename_component( tSRC ${test_source_file} NAME_WE)
-	add_executable(
-		${tSRC}
-		${test_source_file}
-	)
-
-    if(COMPILER_SUPPORTS_CXX17)
-        target_link_libraries( ${tSRC} DSTdisplay gtest gtest_main)
-    else(COMPILER_SUPPORTS_CXX17)
-        target_link_libraries( ${tSRC} DSTdisplay ${Boost_LIBRARIES} gtest gtest_main)
-    endif(COMPILER_SUPPORTS_CXX17)
-
-
-endforeach( test_source_file ${TEST_SRC} )
-
-include(GoogleTest)
-
-foreach( test_source_file ${TEST_SRC} )
-    get_filename_component( tSRC ${test_source_file} NAME_WE)
-    gtest_discover_tests(${tSRC})
-endforeach( test_source_file ${TEST_SRC} )
-
 #-------------------- Configuration MatPlot++
 add_subdirectory(matplotplusplus)
-include_directories(${PARENT_PATH_OF_GTEST}/matplotplusplus/source/matplot)
-enable_testing()
+include_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source)
+include_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot)
+link_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot/build/lib/)
 
 #-------------------- CONFIGURATION OF DOXYGEN DOC GENERATION
 
@@ -215,7 +177,55 @@ if(DOXYGEN_FOUND)
 )
 endif(DOXYGEN_FOUND)
 
+#-------------------- Configuration des test
+add_subdirectory(googletest  EXCLUDE_FROM_ALL)
+include_directories(${PARENT_PATH_OF_GTEST}/googltest/googltest/include)
+enable_testing()
 
+foreach( test_source_file ${TEST_SRC} )
+	get_filename_component( tSRC ${test_source_file} NAME_WE)
+	add_executable(
+		${tSRC}
+		${test_source_file}
+	)
+
+    if(COMPILER_SUPPORTS_CXX17)
+        target_link_libraries( ${tSRC} DSTdisplay gtest gtest_main matplot)
+    else(COMPILER_SUPPORTS_CXX17)
+        target_link_libraries( ${tSRC} DSTdisplay ${Boost_LIBRARIES} gtest gtest_main matplot)
+    endif(COMPILER_SUPPORTS_CXX17)
+
+
+endforeach( test_source_file ${TEST_SRC} )
+
+include(GoogleTest)
+
+foreach( test_source_file ${TEST_SRC} )
+    get_filename_component( tSRC ${test_source_file} NAME_WE)
+    gtest_discover_tests(${tSRC})
+endforeach( test_source_file ${TEST_SRC} )
+
+#-------------------- Configuration de la bibliothèque
+
+add_library(
+    DSTdisplay
+    SHARED
+    ${CORE_SRC}
+    ${CORE_HEADER}
+    ${version_file}
+)
+
+#-------------------- Add Matplot++ executable example
+foreach( test_util_file ${TEST_UTIL} )
+    get_filename_component( tUTIL ${test_util_file} NAME_WE)
+	add_executable(
+		${tUTIL}
+		${test_util_file}
+	)
+
+    target_link_libraries(${tUTIL} matplot)
+
+endforeach( test_util_file ${TEST_UTIL} )
 
 #-------------------- ADD DISTCLEAN CUSTOM TARGET
 
@@ -239,14 +249,16 @@ CMakeFiles
 ./googletest/*.cmake
 ./lib
 ./bin
+./Testing
+simple_plot.png
 )
 
 ADD_CUSTOM_COMMAND(
 DEPENDS clean
 COMMENT "distribution clean"
-COMMAND rm ARGS    -Rf ${DISTCLEANED}
-COMMAND xargs ARGS rm -f < install_manifest.txt
-COMMAND rm ARGS -f install_manifest.txt
+COMMAND rm ARGS -Rf ${DISTCLEANED}
+COMMAND test -e install_manifest.txt || xargs ARGS rm -f < install_manifest.txt
+COMMAND test -e install_manifest.txt || rm ARGS -f install_manifest.txt
 TARGET  distclean
 )
 
@@ -254,7 +266,7 @@ TARGET  distclean
 #-------------------- Installation proceedure
 if(CMAKE_INSTALL_PREFIX)
     INSTALL(FILES ${CORE_HEADER} DESTINATION include/DSTdisplay)
-    INSTALL(TARGETS DSTdisplay
+    INSTALL(TARGETS DSTdisplay matplot
 		RUNTIME DESTINATION exe
 		LIBRARY DESTINATION lib
 		ARCHIVE DESTINATION lib
