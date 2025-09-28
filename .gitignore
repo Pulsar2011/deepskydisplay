@@ -36,6 +36,7 @@ googletest
 moc_*
 ui_*
 *.*_parameters
+.Qt
 
 #--------------- ROOT JUNK
 *.d
@@ -88,6 +89,8 @@ gTest_version.h
 simple_plot.png
 
 googletest/googletest/generated
+
+*_autogen
 
 #--------------- DOXYFILE
 doc/html

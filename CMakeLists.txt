@@ -9,6 +9,8 @@ set(CMAKE_BUILD_DIRECTORY ./build)
 
 if(DEFINED ENV{DeepSkyROOT})
     set(DeepSkyROOT $ENV{DeepSkyROOT})
+else()
+    set(DeepSkyROOT ${CMAKE_SOURCE_DIR}/..)
 endif()
 
 if(NOT WIN32)
@@ -160,6 +162,25 @@ if(!${COMPILER_SUPPORTS_CXX17})
     set(Boost_USE_MULTITHREADED ON)
 endif(!${COMPILER_SUPPORTS_CXX17})
 
+#-------------------- Find QT dependencies. NOTE THAT Qt is optional package
+find_package(Qt6 COMPONENTS Widgets Core Gui PrintSupport Concurrent)
+if(Qt6_FOUND)
+    message("${Blue}-- Qt6 FOUND : ${ColourReset} ${Qt6_VERSION}")
+    include_directories(${Qt6Widgets_INCLUDE_DIRS} ${Qt6Core_INCLUDE_DIRS} ${Qt6Gui_INCLUDE_DIRS} ${Qt6PrintSupport_INCLUDE_DIRS} ${Qt6Concurrent_INCLUDE_DIRS})
+    add_definitions(${Qt6Widgets_DEFINITIONS} ${Qt6Core_DEFINITIONS} ${Qt6Gui_DEFINITIONS} ${Qt6PrintSupport_DEFINITIONS} ${Qt6Concurrent_DEFINITIONS})
+    set(QT_LIBS Qt6::Widgets Qt6::Core Qt6::Gui Qt6::PrintSupport Qt6::Concurrent)
+    add_definitions(-D__WITH_QT__)
+
+    # Enable Qt's code generators
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTOUIC ON)
+    set(CMAKE_AUTORCC ON)
+
+else(Qt6_FOUND)
+    message("${Red}-- Qt6 NOT FOUND. GUI will be disabled${ColourReset}")
+    set(QT_LIBS "")
+endif(Qt6_FOUND)
+
 #-------------------- LIST SOURCE FILE
 
 file(GLOB CORE_SRC "src/*.cxx")
@@ -171,9 +192,16 @@ set(HEADER_FILES ${CORE_HEADER})
 
 #-------------------- Configuration MatPlot++
 add_subdirectory(matplotplusplus)
-include_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source)
-include_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot)
+include_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source ${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot ${DeepSkyROOT}/include ${DeepSkyROOT}/include/Minuit2)
 link_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot/build/lib/)
+
+link_directories(${DeepSkyROOT}/lib)
+find_library(DSTfits NAMES DSTfits HINTS ${DeepSkyROOT}/lib)
+if(DSTfits)
+    message("-- ${Green}Found${ColourReset} DSTfits: ${DSTfits}")
+else()
+    message(WARNING "libDSTfits not found; install the library")
+endif()
 
 #-------------------- CONFIGURATION OF DOXYGEN DOC GENERATION
 
@@ -224,6 +252,8 @@ add_library(
     ${CORE_HEADER}
     ${version_file}
 )
+
+target_link_libraries(DSTdisplay ${DSTfits} ${QT_LIBS} matplot)
 
 #-------------------- Add Matplot++ executable example
 foreach( test_util_file ${TEST_UTIL} )
