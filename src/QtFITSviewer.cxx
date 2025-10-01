@@ -9,6 +9,11 @@
 #include "QtFITSviewer.h"
 #include "ui_QtFITSviewer.h"
 
+std::mutex QtFITS::io_mutex;
+std::mutex QtFITS::msg_m;
+std::condition_variable QtFITS::msg_cv;
+bool QtFITS::finished = false;
+
 /**
  *  @details Default constructor. Initiate application wich will open windows and display plots.
  *  @param parent
@@ -22,6 +27,21 @@ QtFITSviewer::QtFITSviewer(QWidget *parent) : QMainWindow(parent), ui(new Ui::Ma
     setMouseTracking(true);
 
 	setGeometry(400, 250, 542, 390);
+}
+
+/**
+ *  @details Default constructor. Initiate application wich will open windows and display plots.
+ *  @param parent
+ */
+QtFITSviewer::QtFITSviewer(const int& x0, const int& y0, const int& xSize, const int& ySize, QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
+{
+	ui->setupUi(this);
+
+	QLocale loc = QLocale::system();
+	QLocale::setDefault(loc);
+    setMouseTracking(true);
+
+	setGeometry(x0, y0, xSize, ySize);
 }
 
 QtFITSviewer::~QtFITSviewer()

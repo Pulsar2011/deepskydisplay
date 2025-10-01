@@ -82,8 +82,7 @@ set(BUILD_SHARED_LIBS "YES")
 #-------------------- GCC specifics
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	# Linux specific code
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -pipe -fexceptions -fPIC  -m64 -Wno-unknown-pragmas")
-	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pipe -fexceptions -fPIC  -m64 -Wno-unknown-pragmas")
 
 	set(OperatingSystem "Linux")
 	ADD_DEFINITIONS(-DLinuxx86_64)
@@ -93,7 +92,6 @@ ENDIF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 	# Mac OS X specific code
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -m64 -fPIC")
-	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 
 	set(OperatingSystem "Mac OS X")
 	ADD_DEFINITIONS(-DDarwinx86_64)
@@ -104,7 +102,7 @@ if(WITH_DEBUG)
 	message("${Blue}-- DEBUG MODE ACTIVATED${ColourReset}")
 	add_definitions(-D__DEBUG__)
 	set(CMAKE_BUILD_TYPE DEBUG)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 else(WITH_DEBUG)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 endif(WITH_DEBUG)
@@ -142,7 +140,7 @@ set(version_file "${CMAKE_CURRENT_BINARY_DIR}/src/DSD_version.cxx")
 configure_file(${CMAKE_MODULE_PATH}/gTest_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/test/gTest_version.h)
 
 #-------------------- Inclusion des en-têtes publics
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/test ./include ./include/DSTdisplay)
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/test ${CMAKE_CURRENT_BINARY_DIR}/include ${CMAKE_CURRENT_BINARY_DIR}/include/DSTdisplay ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 message("-- PROJECT DIR: " ${CMAKE_SOURCE_DIR})
 message("-- PROJECT BINARY DIR: " ${PROJECT_BINARY_DIR})
@@ -188,7 +186,7 @@ file(GLOB CORE_HEADER "include/DSTdisplay/*.h")
 file(GLOB TEST_SRC "test/*.cxx")
 file(GLOB TEST_UTIL "util/test_*.cxx")
 
-set(HEADER_FILES ${CORE_HEADER})
+set(HEADER_FILES ${CORE_HEADER} src/QtFITSviewer.h DSTdisplay_autogen/include/ui_QtFITSviewer.h)
 
 #-------------------- Configuration MatPlot++
 add_subdirectory(matplotplusplus)
@@ -290,7 +288,9 @@ CMakeFiles
 ./lib
 ./bin
 ./Testing
+./.qt
 simple_plot.png
+*_autogen
 )
 
 ADD_CUSTOM_COMMAND(
@@ -305,7 +305,7 @@ TARGET  distclean
 
 #-------------------- Installation proceedure
 if(CMAKE_INSTALL_PREFIX)
-    INSTALL(FILES ${CORE_HEADER} DESTINATION include/DSTdisplay)
+    INSTALL(FILES ${HEADER_FILES} DESTINATION include/DSTdisplay)
     INSTALL(TARGETS DSTdisplay matplot
 		RUNTIME DESTINATION exe
 		LIBRARY DESTINATION lib
