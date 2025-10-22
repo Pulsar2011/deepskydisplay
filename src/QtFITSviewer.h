@@ -225,7 +225,13 @@ public:
 
     template<typename T>
     static void QtProfileY(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, QCPGraph*, bool horizontal=true);
-    
+
+    void linkResizeEvent(std::function<void(QCustomPlot*)> f)
+    {
+        resizeFunctor = f;
+    }
+
+#pragma endregion
 private:
     Ui::MainWindow *ui;    ///< Main window GUI
     
@@ -233,6 +239,17 @@ private:
     
     void qInitPlot();
     bool eventFilter(QObject*, QEvent *);
+
+    void resizeEvent(QResizeEvent *event) override
+    {
+        if(resizeFunctor)
+            resizeFunctor(this->ui->customPlot);
+    }
+
+#pragma region Event functor helper
+    std::function<void(QCustomPlot*)> resizeFunctor;
+
+#pragma endregion    
 
 };
 
@@ -387,7 +404,7 @@ void  QtFITSviewer::QtProfileY(QCustomPlot* customPlot,const std::shared_ptr<con
     profile.first.clear();
     profile.second.clear();
 
-    for(size_t k=0; k<in->Size(1); k++)
+    for(size_t k=0; k<in->Size(2); k++)
          profile.first.push_back(static_cast<double>(k));
     
     std::slice s = std::slice(iX,in->Size(2),in->Size(1));

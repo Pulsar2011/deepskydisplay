@@ -18,7 +18,7 @@ bool QtFITS::finished = false;
  *  @details Default constructor. Initiate application wich will open windows and display plots.
  *  @param parent
  */
-QtFITSviewer::QtFITSviewer(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
+QtFITSviewer::QtFITSviewer(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow),resizeFunctor(nullptr)
 {
 	ui->setupUi(this);
 
@@ -33,7 +33,7 @@ QtFITSviewer::QtFITSviewer(QWidget *parent) : QMainWindow(parent), ui(new Ui::Ma
  *  @details Default constructor. Initiate application wich will open windows and display plots.
  *  @param parent
  */
-QtFITSviewer::QtFITSviewer(const int& x0, const int& y0, const int& xSize, const int& ySize, QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
+QtFITSviewer::QtFITSviewer(const int& x0, const int& y0, const int& xSize, const int& ySize, QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow),resizeFunctor(nullptr)
 {
 	ui->setupUi(this);
 
