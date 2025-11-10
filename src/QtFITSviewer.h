@@ -180,7 +180,7 @@ class QtFITSviewer : public QMainWindow
 #pragma region - Public member
 public:
 
-#pragma constructor/destructor
+#pragma region constructor/destructor
     QtFITSviewer(QWidget *parent = 0); ///< @brief Default constructor
     QtFITSviewer(const int&, const int&, const int&, const int&, QWidget *parent = 0);
     
@@ -226,6 +226,9 @@ public:
     template<typename T>
     static void QtProfileY(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, QCPGraph*, bool horizontal=true);
 
+
+    static void QtContours(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& nLevels);
+
     void linkResizeEvent(std::function<void(QCustomPlot*)> f)
     {
         resizeFunctor = f;
@@ -238,7 +241,7 @@ private:
     QtFITS::qPlotList plot_list;
     
     void qInitPlot();
-    bool eventFilter(QObject*, QEvent *);
+    bool eventFilter(QObject*, QEvent *) override;
 
     void resizeEvent(QResizeEvent *event) override
     {
