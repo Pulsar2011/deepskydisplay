@@ -7,11 +7,15 @@
 //
 //	Copyright (c) 2025, All rights reserved
 
-#include<DSTdisplay/QtDisplay.h>
-#include"QtFitsViewer.h"
-#include<DSTdisplay/DSD_version.h>
-#include<DSTfits/FITSexception.h>
-#include<DSTfits/FITSimg.h>
+#include <ranges>
+
+#include <DSTdisplay/QtDisplay.h>
+#include "QtFitsViewer.h"
+#include <DSTdisplay/DSD_version.h>
+#include <DSTfits/FITSexception.h>
+#include <DSTfits/FITSimg.h>
+
+#include <matplot/matplot.h>
 
 using namespace DSL;
 
@@ -428,6 +432,155 @@ void QtFITSviewer::QtProfileY(QCustomPlot* customPlot,const std::shared_ptr<cons
         default:
             throw FITSexception(BAD_BITPIX,"FITSimg","DrawHistogram","Unsupported BITPIX="+std::to_string(in->GetEqBitPerPixel()));
     }
+} 
+
+/** 
+ @class QCustomContours
+ @brief Helper class derived from matplot::contours to expose contour lines data.
+ @details This class extends matplot::contours to provide access to the contour lines data, allowing extraction and rendering of the contour in a QtCustomPlot framwork, avoiding having to define new function to evaluate contours from scratch.
+ */
+class QCustomContours: public matplot::contours
+{
+    public:
+        QCustomContours(class matplot::axes_type *parent, const matplot::vector_2d &X,const matplot::vector_2d &Y, const matplot::vector_2d &Z,std::string_view line_spec,const size_t& nLevels=4) : matplot::contours(parent,X,Y,Z,line_spec)
+        {
+            filled(false);
+            n_levels(nLevels);
+            //initialize_preprocessed_data();
+            process_contour_levels();
+            process_all_segs_and_all_kinds();
+        }
+
+        QCustomContours(class matplot::axes_type *parent, const matplot::vector_2d &Z,std::string_view line_spec,const size_t& nLevels=4): matplot::contours(parent,Z,line_spec)
+        {
+            filled(false);
+            n_levels(nLevels);
+            //initialize_preprocessed_data();
+            process_contour_levels();
+            process_all_segs_and_all_kinds();
+        }
+
+        inline const std::vector<matplot::QuadContourGenerator::vertices_list_type>& lines() const {return lines_;}
+        inline const std::vector<double>& levels() const {return levels_;}
+};
+
+/**
+ * @brief Draw contour levels from a 2D FITS image onto an existing QCustomPlot.
+ * @param qPlot Existing QCustomPlot to draw contours on.
+ * @param img Shared pointer to the 2D FITS image.
+ * @param nLevels Number of contour levels to draw.
+ * @throws FITSexception if the image is not 2D array.
+ */
+void QtFITSviewer::QtContours(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& nLevels)
+{
+    if(img->GetDimension() != 2)
+        throw FITSexception(BAD_DIMEN,"FITSimg","QtContours","Image dimension should be 2D to compute contours.");
+
+    matplot::vector_1d x = matplot::linspace(0, img->Size(1)-1, img->Size(1));
+    matplot::vector_1d y = matplot::linspace(0, img->Size(2)-1, img->Size(2));
+
+    auto [X,Y] = matplot::meshgrid(x, y);
+    matplot::vector_2d Z = matplot::transform(X, Y, [](double x, double y) { return 0; });
+
+    for(size_t j=0; j<img->Size(2); j++)
+    {
+        for(size_t i=0; i<img->Size(1); i++)
+        {
+            Z[j][i] = img->at(img->PixelIndex({i,j}));
+        }
+    }
+
+    auto fig = matplot::figure(true);
+    auto ax  = fig->current_axes();
+    
+    QCustomContours c(ax.get(), X, Y, Z,"",nLevels);
+    
+    // Detach data from Matplot++ objects
+    const auto lines = c.lines(); // copy the lines we need
+    const auto levels = c.levels();
+
+    // Properly close and release the temporary figure
+    //matplot::close(fig);   // closes the figure in Matplot++
+    //fig->close(); // prevent destructor from trying to close again
+    fig.reset();           // release shared_ptr immediately
+    ax.reset();            // release shared_ptr immediately
+
+    QMetaObject::invokeMethod(qPlot, [lines, levels, img, qPlot]() mutable
+    {
+        {
+            std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+            for(std::vector<matplot::QuadContourGenerator::vertices_list_type>::const_iterator it = lines.cbegin(); it != lines.cend(); ++it)
+            {
+
+                QVector<double> xVals;
+                QVector<double> yVals;
+
+#if __cplusplus >= 202302L
+                size_t idx = 0;
+                for(const auto& [x, y] : std::views::zip(it->first, it->second))
+                {
+                    if(std::isnan(x) || std::isnan(y))
+                    {
+                        QCPCurve* contour = new QCPCurve(qPlot->xAxis, qPlot->yAxis);
+
+                        if(xVals.size() > 50 && yVals.size() > 50)
+                        {
+                            QCPItemText *label = new QCPItemText(qPlot);
+                            label->position->setCoords(xVals[xVals.size()/4.], yVals[yVals.size()/4.]);
+
+                            //Get the orientation of the line
+                            double ang=std::atan2(yVals[yVals.size()/4.+1]-yVals[yVals.size()/4.-1], xVals[xVals.size()/4.+1]-xVals[xVals.size()/4.-1]);
+
+                            label->setRotation(ang*180./std::acos(-1));
+                            label->setText(std::to_string(img->DoubleValueAtPixel({static_cast<size_t>(xVals[xVals.size()/4.]+0.5), static_cast<size_t>(yVals[yVals.size()/4.]+0.5)})).c_str());
+                            label->setFont(QFont(qPlot->font().family(), 9));
+                        }
+
+                        contour->addData(xVals, yVals);
+                        contour->setPen(QPen(Qt::green));
+
+                        xVals.clear();
+                        yVals.clear();
+
+                        idx++;
+                        continue;
+                    }
+
+                    xVals.push_back(x);
+                    yVals.push_back(y);
+                }
+#else
+                // Fallback for older standards
+                size_t numVertices = std::min(it->first.size(), it->second.size());
+                for(size_t idx = 0; idx < numVertices; ++idx)
+                {
+                    if(std::isnan(it->first[idx]) || std::isnan(it->second[idx]))
+                    {
+                        QCPCurve* contour = new QCPCurve(qPlot->xAxis, qPlot->yAxis);
+                        contour->addData(xVals, yVals);
+                        contour->setPen(QPen(Qt::green));
+                        xVals.clear();
+                        yVals.clear();
+                        continue;
+                    }
+
+                    xVals.push_back(it->first[idx]);
+                    yVals.push_back(it->second[idx]);
+                }
+#endif
+            }
+            qPlot->replot();
+
+        } // io_mutex released here
+
+        {
+            std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+            if (!QtFITS::finished)
+                 QtFITS::finished |= true;
+            QtFITS::msg_cv.notify_one(); // notify while holding msg_m (or move notify outside if preferred)
+            QtFITS::finished &= false;
+        } // msg_m released here
+    });
 }
 
 // namespace DSL
