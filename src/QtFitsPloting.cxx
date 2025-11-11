@@ -526,13 +526,13 @@ void QtFITSviewer::QtContours(QCustomPlot* qPlot, const  std::shared_ptr<const F
                         if(xVals.size() > 50 && yVals.size() > 50)
                         {
                             QCPItemText *label = new QCPItemText(qPlot);
-                            label->position->setCoords(xVals[xVals.size()/4.], yVals[yVals.size()/4.]);
+                            label->position->setCoords(xVals[xVals.size()/8.], yVals[yVals.size()/8.]);
 
                             //Get the orientation of the line
-                            double ang=std::atan2(yVals[yVals.size()/4.+1]-yVals[yVals.size()/4.-1], xVals[xVals.size()/4.+1]-xVals[xVals.size()/4.-1]);
+                            double ang=std::atan2(yVals[yVals.size()/8.+1]-yVals[yVals.size()/8.-1], xVals[xVals.size()/8.+1]-xVals[xVals.size()/8.-1]);
 
                             label->setRotation(ang*180./std::acos(-1));
-                            label->setText(std::to_string(img->DoubleValueAtPixel({static_cast<size_t>(xVals[xVals.size()/4.]+0.5), static_cast<size_t>(yVals[yVals.size()/4.]+0.5)})).c_str());
+                            label->setText(QString::number(img->DoubleValueAtPixel({static_cast<size_t>(xVals[xVals.size()/8.]+0.5), static_cast<size_t>(yVals[yVals.size()/8.]+0.5)}),'f',3));
                             label->setFont(QFont(qPlot->font().family(), 9));
                         }
 
