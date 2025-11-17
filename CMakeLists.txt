@@ -310,5 +310,19 @@ if(CMAKE_INSTALL_PREFIX)
 		RUNTIME DESTINATION exe
 		LIBRARY DESTINATION lib
 		ARCHIVE DESTINATION lib
-)
+    )
+
+    INSTALL(
+        DIRECTORY ${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot/
+        DESTINATION include/matplot
+        FILES_MATCHING
+            PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.tpp" PATTERN "*.ipp" PATTERN "*.inl" PATTERN "*.tcc"
+        PATTERN "CMakeFiles" EXCLUDE
+        PATTERN "build" EXCLUDE
+        PATTERN ".git" EXCLUDE
+        PATTERN ".github" EXCLUDE
+        PATTERN "cmake" EXCLUDE
+        PATTERN "docs" EXCLUDE
+        PATTERN "test" EXCLUDE
+    )
 endif(CMAKE_INSTALL_PREFIX)
