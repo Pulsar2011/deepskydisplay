@@ -205,6 +205,16 @@ public:
     static void Overlay(QCustomPlot*, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
     static void Overlay(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
 
+    static void QtDisplayInWCS(QCustomPlot*      , const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+    static void QtDisplayInWCS(QCustomPlot*      , const std::shared_ptr<const FITScube>&, const size_t& wcsIdx, std::string OPTION=std::string());
+    static void QtDisplayInWCS(QCustomPlot*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
+    static void QtDisplayInWCS(QCustomPlot*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string OPTION=std::string());
+
+    static void OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+    static void OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, std::string OPTION=std::string());
+    static void OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
+    static void OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t &, std::string OPTION=std::string());
+
     static void QtHistogram(QCustomPlot* , const std::shared_ptr<const FITScube>&, const size_t&, QCPGraph*, QCPGraph*);
     static void QtHistogram(QCustomPlot* , const std::shared_ptr<const FITScube>&, const size_t&, const double&, const double&, QCPGraph*, QCPGraph*);
 

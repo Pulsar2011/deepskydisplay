@@ -59,6 +59,82 @@ void QtFITSviewer::QtDisplay(QCustomPlot* qPlot, const  std::shared_ptr<const FI
 }
 
 /**
+ *  Display FITS 2D images onto the screen using default WCS as pixel coordinates.
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ *  @return Pointer to the displayed plot structure for further customization and overplotting
+ */
+void QtFITSviewer::QtDisplayInWCS(QCustomPlot* qPlot,const  std::shared_ptr<const FITScube>& img  , std::string OPTION)
+{
+    return QtDisplayInWCS(qPlot, img, 0 , img->Nelements(), 0, OPTION);
+}
+
+/**
+ *  Display FITS 2D images onto the screen using WCS as pixel coordinates.
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param wcsIdx: index of the WCS to be used
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ *  @return Pointer to the displayed plot structure for further customization and overplotting
+ */
+void QtFITSviewer::QtDisplayInWCS(QCustomPlot* qPlot,const  std::shared_ptr<const FITScube>& img, const size_t& wcsIdx, std::string OPTION)
+{
+    return QtDisplayInWCS(qPlot, img, 0 , img->Nelements(), wcsIdx, OPTION);
+}
+
+/**
+ *  Display sub FITS 2D images onto the screen using default WCS as pixel coordinates.
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param iMin: index of the pixel used as the lower left corner
+ *  @param iMax: index of the pixel used as the upper left corner
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ *  @return Pointer to the displayed plot structur for further customization and overplotting
+ */
+void QtFITSviewer::QtDisplayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& iMin, const size_t& iMax, std::string OPTION)
+{
+    return QtDisplayInWCS(qPlot, img, iMin , iMax, 0, OPTION);
+}
+/**
+ *  Display sub FITS 2D images onto the screen using WCS as pixel coordinates.
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param iMin: index of the pixel used as the lower left corner
+ *  @param wcsIdx: index of the WCS to be used
+ *  @param iMax: index of the pixel used as the upper left corner
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ *  @return Pointer to the displayed plot structur for further customization and overplotting
+ */
+void QtFITSviewer::QtDisplayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& iMin, const size_t& iMax, const size_t& wcsIdx, std::string OPTION)
+{
+    qPlot->yAxis->setScaleRatio(qPlot->xAxis,1.0);
+
+    const FITSwcs thisWcs = img->getWCS();
+    std::string xLabel = thisWcs.CTYPE(wcsIdx)[0]+" ["+thisWcs.CUNIT(wcsIdx)[0]+"]";
+    std::string yLabel = thisWcs.CTYPE(wcsIdx)[1]+" ["+thisWcs.CUNIT(wcsIdx)[1]+"]";
+    
+    //- Fill the graph
+    qPlot->xAxis->setLabel(xLabel.c_str());
+    qPlot->yAxis->setLabel(yLabel.c_str());
+    
+    OverlayInWCS(qPlot, img, iMin, iMax, wcsIdx, OPTION);
+    return;
+}
+
+/**
  *  Display a single layer of a FITS cube onto the scrren.
  *  @param img: Pointer to the FITS image to be displayed
  *  @param iLayer: index of the layer to be displayed
@@ -109,6 +185,37 @@ void QtFITSviewer::Overlay(QCustomPlot* qPlot, const  std::shared_ptr<const FITS
 }
 
 /**
+ *  Overlay FITS 2D images onto an existing plot using WCS as pixel coordinates.
+ *  @param qPlot: Pointer to the existing plot
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param wcsIdx: index of the WCS to be used
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ */
+void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& wcsIdx, std::string OPTION)
+{
+    OverlayInWCS(qPlot, img, 0, img->Nelements(), wcsIdx, OPTION);
+}
+
+/**
+ *  Overlay FITS 2D images onto an existing plot using WCS as pixel coordinates using default WCS as reference.
+ *  @param qPlot: Pointer to the existing plot
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ */
+void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , std::string OPTION)
+{
+    OverlayInWCS(qPlot, img, 0, img->Nelements(), 0, OPTION);
+}
+
+/**
  *  Overlay sub FITS 2D images onto an existing plot.
  *  @param qPlot: Pointer to the existing plot
  *  @param img: Pointer to the FITS image to be displayed
@@ -122,7 +229,6 @@ void QtFITSviewer::Overlay(QCustomPlot* qPlot, const  std::shared_ptr<const FITS
  */
 void QtFITSviewer::Overlay(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& iMin, const size_t& iMax, std::string OPTION)
 {
-
     std::vector<size_t> xPixels;
     
     std::transform(OPTION.begin(), OPTION.end(), OPTION.begin(), ::tolower);
@@ -197,6 +303,205 @@ void QtFITSviewer::Overlay(QCustomPlot* qPlot, const  std::shared_ptr<const FITS
         
         colorMap->data()->setCell(static_cast<int>(xIndex), static_cast<int>(yIndex), Intensity );
     }
+    
+    std::string UNITS = (img->HDU().Exists("UNITS"))?img->HDU().GetValueForKey("UNITS"):"ARB. UNIT";
+    
+    switch (useScale)
+    {
+        case QtFITS::fLOG:
+            UNITS = "log10("+UNITS+")";
+            break;
+            
+        case QtFITS::fQUAD:
+            UNITS += "^2";
+            break;
+            
+        case QtFITS::fSQRT:
+            UNITS += "^(1/2)";
+            break;
+            
+        case QtFITS::fSINH:
+            UNITS += "sinh("+UNITS+")";
+            break;
+            
+        default:
+            break;
+    }
+    QCPColorScale *colorScale = NULL;
+    
+    if(	!(qPlot->plotLayout()->hasElement (0, 1)) )
+    {
+        // add a color scale:
+        colorScale = new QCPColorScale(qPlot);
+        qPlot->plotLayout()->addElement(0, 1, colorScale);          // add it to the right of the main axis rect
+        // make sure the axis rect and color scale synchronize their bottom and top margins (so they line up):
+        QCPMarginGroup *marginGroup = new QCPMarginGroup(qPlot);
+        const QCP::MarginSides sides = QCP::MarginSides(QCP::msBottom) | QCP::msTop;
+        qPlot->axisRect()->setMarginGroup(sides, marginGroup);
+        colorScale->setMarginGroup(sides, marginGroup);
+    }
+    else
+    {
+        colorScale = static_cast<QCPColorScale*>(qPlot->plotLayout()->element(0, 1));
+    }
+    colorScale->setGradient(QCPColorGradient::gpNight);
+    
+    colorScale->axis()->setLabel(UNITS.c_str());
+    colorScale->setType(QCPAxis::atRight);						// scale shall be vertical bar with tick/axis labels right (actually atRight is already the default)
+        
+    colorMap->setColorScale(colorScale);						// associate the color map with the color scale
+    // we could have also created a QCPColorGradient instance and added own	colors to
+    // the gradient, see the documentation of QCPColorGradient for what's possible.
+    
+    // rescale the data dimension (color) such that all data points lie in the span visualized by the color gradient:
+    colorMap->rescaleDataRange();
+    
+    if(std::abs(img->GetMaximum()/img->GetMinimum()) > 100)
+        colorMap->setDataRange(QCPRange(img->Get5thpercentil(),img->Get95thpercentil()));
+    
+    colorMap->setInterpolate(false);
+    
+    // rescale the key (x) and value (y) axes so the whole color map is visible:
+    
+    QMetaObject::invokeMethod(qPlot, [qPlot]() mutable
+                                {
+                                    {
+                                        std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+                                        qPlot->rescaleAxes();
+                                        qPlot->yAxis->setScaleRatio(qPlot->xAxis,1.0);
+                                        qPlot->replot();
+                                    } // io_mutex released here
+                                
+                                    {
+                                        std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+                                        if (!QtFITS::finished)
+                                             QtFITS::finished |= true;
+                                        QtFITS::msg_cv.notify_one(); // notify while holding msg_m (or move notify outside if preferred)
+                                        QtFITS::finished &= false;
+                                    } // msg_m released here
+                                }
+                            );
+}
+
+/**
+ *  Overlay sub FITS 2D images onto an existing plot using WCS as pixel coordinates, using default WCS at idex 0 as reference.
+ *  @param qPlot: Pointer to the existing plot
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param iMin: index of the pixel used as the lower left corner
+ *  @param iMax: index of the pixel used as the upper left corner
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ */
+void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& iMin, const size_t& iMax, std::string OPTION)
+{
+    OverlayInWCS(qPlot, img, iMin, iMax, 0, OPTION);
+}
+
+/**
+ *  Overlay sub FITS 2D images onto an existing plot using WCS as pixel coordinates.
+ *  @param qPlot: Pointer to the existing plot
+ *  @param img: Pointer to the FITS image to be displayed
+ *  @param iMin: index of the pixel used as the lower left corner
+ *  @param iMax: index of the pixel used as the upper left corner
+ *  @param wcsIdx: index of the worldcoordinate system to be used as reference
+ *  @param OPTION: Optional parameters used to customize the plot:
+ *      - LOGZ  : Display color scale in LOG10 scale
+ *      - QUADZ : Display color scale in QUADRATIC scale
+ *      - SQRTZ : Display color scale in SQUARE_ROOT scale
+ *      - SINH  : Display color scale in SINH scale
+ */
+void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const FITScube>& img  , const size_t& iMin, const size_t& iMax, const size_t& wcsIdx, std::string OPTION)
+{
+    worldCoords xPixels;
+    
+    std::transform(OPTION.begin(), OPTION.end(), OPTION.begin(), ::tolower);
+    const size_t nx = img->Size(1);
+    const size_t ny = img->Size(2);
+    if(iMin >= img->Nelements() || iMax > img->Nelements() || iMin >= iMax)
+        throw FITSexception(BAD_ELEM_NUM,"FITSimg","Overlay","iMin and iMax should be comprised between 0 to "+std::to_string(img->Nelements())+" and iMin < iMax");
+    
+    QtFITS::zScale useScale = QtFITS::zScale::fLIN;
+    if(OPTION.find("logz",0) != std::string::npos )
+        useScale  = QtFITS::zScale::fLOG;
+    else if(OPTION.find("sinhz",0) != std::string::npos )
+        useScale  = QtFITS::zScale::fSINH;
+    else if(OPTION.find("quadz",0) != std::string::npos )
+        useScale  = QtFITS::zScale::fQUAD;
+    else if(OPTION.find("sqrtz",0) != std::string::npos )
+        useScale  = QtFITS::zScale::fSQRT;
+    else
+        useScale = QtFITS::zScale::fLIN;
+    
+    QCPColorMap *colorMap = new QCPColorMap(qPlot->xAxis, qPlot->yAxis);
+    colorMap->data()->setSize(nx, ny);  // we want the color map to have nx * ny data points
+                                
+    colorMap->data()->fill(0);
+    
+    std::valarray<bool> mask = img->GetMask();
+    // now we assign some data, by accessing the QCPColorMapData instance of the color map:
+
+    double minX = std::numeric_limits<double>::max();
+    double maxX = -1*std::numeric_limits<double>::max();
+
+    double minY = std::numeric_limits<double>::max();
+    double maxY = -1*std::numeric_limits<double>::max();
+    
+    for(size_t ik = iMin; ik < iMax; ik++)
+    {
+        if(mask[ik])
+            continue;
+        double Intensity = 0;
+        Intensity += img->at(ik);
+    
+        xPixels.clear();
+        
+        xPixels = img->WorldCoordinates(ik);
+        double xIndex = xPixels[0];
+        double yIndex = xPixels[1];
+
+        minX = (minX > xIndex)?xIndex:minX;
+        maxX = (maxX < xIndex)?xIndex:maxX;
+
+        minY = (minY > yIndex)?yIndex:minY;
+        maxY = (maxY < yIndex)?yIndex:maxY;
+            
+        switch (useScale)
+        {
+            case QtFITS::fLIN:
+                Intensity *= 1.;
+                break;
+                
+            case QtFITS::fLOG:
+                Intensity = std::log10(Intensity);
+                break;
+                
+            case QtFITS::fQUAD:
+                Intensity = std::pow(Intensity, 2.);
+                break;
+                
+            case QtFITS::fSQRT:
+                Intensity = std::sqrt(Intensity);
+                break;
+                
+            case QtFITS::fSINH:
+                Intensity = std::sinh(Intensity);
+                break;
+                
+            default:
+                Intensity *= 1.;
+                break;
+        }
+        
+        colorMap->data()->setData(xIndex, yIndex, Intensity );
+    }
+
+    // Set the data coordinate range to cover the full image extent in x (key) and y (value).
+    // Using [0, 0] for the key range collapses the map horizontally and leaves axes at defaults (-2..2).
+    // QCPColorMap expects key/value ranges matching the data index domain [0..nx-1], [0..ny-1].
+    colorMap->data()->setRange(QCPRange(minX, maxX),QCPRange(minY, maxY));	// span the coordinate range in both key (x) and value (y)
     
     std::string UNITS = (img->HDU().Exists("UNITS"))?img->HDU().GetValueForKey("UNITS"):"ARB. UNIT";
     
