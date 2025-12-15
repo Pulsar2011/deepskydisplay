@@ -437,17 +437,44 @@ void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const
     
     QCPColorMap *colorMap = new QCPColorMap(qPlot->xAxis, qPlot->yAxis);
     colorMap->data()->setSize(nx, ny);  // we want the color map to have nx * ny data points
-                                
-    colorMap->data()->fill(0);
-    
+
     std::valarray<bool> mask = img->GetMask();
     // now we assign some data, by accessing the QCPColorMapData instance of the color map:
 
-    double minX = std::numeric_limits<double>::max();
-    double maxX = -1*std::numeric_limits<double>::max();
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = -1*std::numeric_limits<double>::max();
 
-    double minY = std::numeric_limits<double>::max();
-    double maxY = -1*std::numeric_limits<double>::max();
+    double min_y = std::numeric_limits<double>::max();
+    double max_y = -1*std::numeric_limits<double>::max();
+
+    worldCoords wcs = img->WorldCoordinates(0,wcsIdx);
+    min_x = std::min(min_x,wcs[0]);
+    max_x = std::max(max_x,wcs[0]);
+    min_y = std::min(min_y,wcs[1]);
+    max_y = std::max(max_y,wcs[1]);
+    
+    wcs = img->WorldCoordinates(img->Size(1)-1,wcsIdx);
+    min_x = std::min(min_x,wcs[0]);
+    max_x = std::max(max_x,wcs[0]);
+    min_y = std::min(min_y,wcs[1]);
+    max_y = std::max(max_y,wcs[1]);
+    
+    wcs = img->WorldCoordinates((img->Size(2)-1)*img->Size(1),wcsIdx);
+    min_x = std::min(min_x,wcs[0]);
+    max_x = std::max(max_x,wcs[0]);
+    min_y = std::min(min_y,wcs[1]);
+    max_y = std::max(max_y,wcs[1]);
+    
+    wcs = img->WorldCoordinates( (img->Size(1)-1) + (img->Size(2)-1)*img->Size(1),wcsIdx);
+    min_x = std::min(min_x,wcs[0]);
+    max_x = std::max(max_x,wcs[0]);
+    min_y = std::min(min_y,wcs[1]);
+    max_y = std::max(max_y,wcs[1]);
+
+    colorMap->data()->setRange(QCPRange(min_x, max_x), QCPRange(min_y, max_y));	// and span the coordinate range in both key (x) and value (y) dimensions
+    
+    colorMap->data()->fill(0);
+    colorMap->data()->fillAlpha(0);
     
     for(size_t ik = iMin; ik < iMax; ik++)
     {
@@ -461,12 +488,6 @@ void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const
         xPixels = img->WorldCoordinates(ik);
         double xIndex = xPixels[0];
         double yIndex = xPixels[1];
-
-        minX = (minX > xIndex)?xIndex:minX;
-        maxX = (maxX < xIndex)?xIndex:maxX;
-
-        minY = (minY > yIndex)?yIndex:minY;
-        maxY = (maxY < yIndex)?yIndex:maxY;
             
         switch (useScale)
         {
@@ -496,13 +517,12 @@ void QtFITSviewer::OverlayInWCS(QCustomPlot* qPlot, const  std::shared_ptr<const
         }
         
         colorMap->data()->setData(xIndex, yIndex, Intensity );
+        
+        int xIdx, yIdx;
+        colorMap->data()->coordToCell(xIndex,yIndex,&xIdx,&yIdx);
+        colorMap->data()->setAlpha(xIdx, yIdx, 255);
     }
 
-    // Set the data coordinate range to cover the full image extent in x (key) and y (value).
-    // Using [0, 0] for the key range collapses the map horizontally and leaves axes at defaults (-2..2).
-    // QCPColorMap expects key/value ranges matching the data index domain [0..nx-1], [0..ny-1].
-    colorMap->data()->setRange(QCPRange(minX, maxX),QCPRange(minY, maxY));	// span the coordinate range in both key (x) and value (y)
-    
     std::string UNITS = (img->HDU().Exists("UNITS"))?img->HDU().GetValueForKey("UNITS"):"ARB. UNIT";
     
     switch (useScale)
@@ -821,7 +841,7 @@ void QtFITSviewer::QtContours(QCustomPlot* qPlot, const  std::shared_ptr<const F
                 QVector<double> yVals;
 
 #if __cplusplus >= 202302L
-                size_t idx = 0;
+
                 for(const auto& [x, y] : std::views::zip(it->first, it->second))
                 {
                     if(std::isnan(x) || std::isnan(y))
@@ -847,7 +867,6 @@ void QtFITSviewer::QtContours(QCustomPlot* qPlot, const  std::shared_ptr<const F
                         xVals.clear();
                         yVals.clear();
 
-                        idx++;
                         continue;
                     }
 
