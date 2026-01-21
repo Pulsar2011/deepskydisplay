@@ -33,10 +33,10 @@ deps:
     - cd deepskyfits
     - export CFLAGS="-fPIC -O3" CXXFLAGS="-fPIC -O3"
     - cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
-    - make -j "$(nproc --all)"
+    - make -j 2
     - make install
   artifacts:
-    expire_in: 2 hrs
+    expire_in: 24 hrs
     paths:
       - /usr/local/lib/libDSTfits*
       - /usr/local/include/DSTfits
