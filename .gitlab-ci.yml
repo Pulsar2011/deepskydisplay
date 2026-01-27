@@ -6,6 +6,9 @@
 image:
   name: gcc:13-bookworm
 
+variables:
+  DeepSkyROOT: "/usr/local"
+
 stages:
 - .pre
 - build
@@ -31,8 +34,11 @@ deps:
     # Try using wget to download the repository archive instead of git clone
     - git clone https://oauth2:${DEEPSKYFITS_TOKEN}@gitlab.in2p3.fr/deepskyproject/deepskyfits.git
     - cd deepskyfits
+    - git submodule update --init --recursive
     - export CFLAGS="-fPIC -O3" CXXFLAGS="-fPIC -O3"
     - cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
+    - make -j 2
+    # Repeat make because sometime it fail when waiting for unfinish compilation of others src.
     - make -j 2
     - make install
   artifacts:
@@ -40,6 +46,12 @@ deps:
     paths:
       - /usr/local/lib/libDSTfits*
       - /usr/local/include/DSTfits
+      - /usr/local/lib/libwcs*
+      - /usr/local/lib/libMinuit*
+      - /usr/local/lib/libcfitsio*
+      - /usr/local/include/Minuit2
+      - /usr/local/include/wcslib
+      - /usr/local/include/cfitsio
 
 build:
   stage: build
