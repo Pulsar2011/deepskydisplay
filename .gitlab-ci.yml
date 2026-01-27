@@ -6,6 +6,9 @@
 image:
   name: gcc:13-bookworm
 
+variables:
+  DeepSkyROOT: "/usr/local"
+
 stages:
 - .pre
 - build
@@ -43,6 +46,12 @@ deps:
     paths:
       - /usr/local/lib/libDSTfits*
       - /usr/local/include/DSTfits
+      - /usr/local/lib/libwcs*
+      - /usr/local/lib/libMinuit*
+      - /usr/local/lib/libcfitsio*
+      - /usr/local/include/Minuit2
+      - /usr/local/include/wcslib
+      - /usr/local/include/cfitsio
 
 build:
   stage: build
