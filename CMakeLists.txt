@@ -226,6 +226,22 @@ else()
     message(WARNING "libDSTfits not found; install the library")
 endif()
 
+find_library(cfitsio NAMES cfitsio HINTS ${DeepSkyROOT}/lib)
+if(cfitsio)
+    include_directories(${DeepSkyROOT}/include/cfitsio)
+    message("-- ${Green}Found${ColourReset} cfitsio: ${cfitsio}")
+else()
+    message(WARNING "libcfitsio not found; install the library")
+endif()
+
+find_library(Minuit2 NAMES Minuit2 HINTS ${DeepSkyROOT}/lib)
+if(Minuit2)
+    include_directories(${DeepSkyROOT}/include/Minuit2)
+    message("-- ${Green}Found${ColourReset} Minuit2: ${Minuit2}")
+else()
+    message(WARNING "libMinuit2 not found; install the library")
+endif()
+
 #-------------------- CONFIGURATION OF DOXYGEN DOC GENERATION
 
 find_package(Doxygen)

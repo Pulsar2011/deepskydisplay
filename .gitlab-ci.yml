@@ -39,6 +39,7 @@ deps:
     - cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
     - make -j 2
     # Repeat make because sometime it fail when waiting for unfinish compilation of others src.
+    - cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
     - make -j 2
     - make install
   artifacts:
