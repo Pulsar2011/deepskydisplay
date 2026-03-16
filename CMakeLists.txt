@@ -165,7 +165,7 @@ set(version_file "${CMAKE_CURRENT_BINARY_DIR}/src/DSD_version.cxx")
 configure_file(${CMAKE_MODULE_PATH}/gTest_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/test/gTest_version.h)
 
 #-------------------- Inclusion des en-têtes publics
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/test ${CMAKE_CURRENT_BINARY_DIR}/include ${CMAKE_CURRENT_BINARY_DIR}/include/DSTdisplay ${CMAKE_CURRENT_BINARY_DIR}/src)
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/test ${CMAKE_CURRENT_BINARY_DIR}/include ${CMAKE_CURRENT_BINARY_DIR}/include/DSTdisplay ${CMAKE_CURRENT_BINARY_DIR}/src ./include ./include/DSTdisplay)
 
 message("-- PROJECT DIR: " ${CMAKE_SOURCE_DIR})
 message("-- PROJECT BINARY DIR: " ${PROJECT_BINARY_DIR})
