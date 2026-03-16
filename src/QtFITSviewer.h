@@ -38,6 +38,7 @@ using namespace DSL;
 #include <mutex>
 #include <condition_variable>
 #include <future> 
+#include <exception>
 
 namespace QtFITS
 {

@@ -8,6 +8,7 @@
 //	Copyright (c) 2025, All rights reserved
 
 #include <ranges>
+#include <exception>
 
 #include <DSTdisplay/QtDisplay.h>
 #include "QtFITSviewer.h"
