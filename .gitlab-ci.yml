@@ -32,6 +32,9 @@ deps:
   stage: .pre
   script:
     # Try using wget to download the repository archive instead of git clone
+    - pwd
+    - ls
+    - ls ..
     - mkdir -p deepskyproject
     - git clone https://oauth2:${DEEPSKYFITS_TOKEN}@gitlab.in2p3.fr/deepskyproject/deepskyfits.git
     - cd deepskyfits
