@@ -32,27 +32,28 @@ deps:
   stage: .pre
   script:
     # Try using wget to download the repository archive instead of git clone
+    - mkdir -p deepskyproject
     - git clone https://oauth2:${DEEPSKYFITS_TOKEN}@gitlab.in2p3.fr/deepskyproject/deepskyfits.git
     - cd deepskyfits
     - git submodule update --init --recursive
     - export CFLAGS="-fPIC -O3" CXXFLAGS="-fPIC -O3"
-    - cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
+    - cmake -DCMAKE_INSTALL_PREFIX=../deepskyproject -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
     - make -j 2
     # Repeat make because sometime it fail when waiting for unfinish compilation of others src.
-    - cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
-    - make -j 2
-    - make install
+    - cmake -DCMAKE_INSTALL_PREFIX=../deepskyproject -Wno-dev -DCMAKE_CXX_STANDARD=23 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF .
+    - make -j 2 install
+    - cd -
   artifacts:
     expire_in: 24 hrs
     paths:
-      - /usr/local/lib/libDSTfits*
-      - /usr/local/include/DSTfits
-      - /usr/local/lib/libwcs*
-      - /usr/local/lib/libMinuit*
-      - /usr/local/lib/libcfitsio*
-      - /usr/local/include/Minuit2
-      - /usr/local/include/wcslib
-      - /usr/local/include/cfitsio
+      - deepskyproject/lib/libDSTfits*
+      - deepskyproject/include/DSTfits
+      - deepskyproject/lib/libwcs*
+      - deepskyproject/lib/libMinuit*
+      - deepskyproject/lib/libcfitsio*
+      - deepskyproject/include/Minuit2
+      - deepskyproject/include/wcslib
+      - deepskyproject/include/cfitsio
 
 build:
   stage: build
