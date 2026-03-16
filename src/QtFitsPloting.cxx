@@ -10,7 +10,7 @@
 #include <ranges>
 
 #include <DSTdisplay/QtDisplay.h>
-#include "QtFitsViewer.h"
+#include "QtFITSViewer.h"
 #include <DSTdisplay/DSD_version.h>
 #include <DSTfits/FITSexception.h>
 #include <DSTfits/FITSimg.h>
