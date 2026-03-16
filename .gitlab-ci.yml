@@ -61,6 +61,9 @@ build:
     - job: deps
       artifacts: true
   script:
+  - ls
+  - ls ..
+  - set DeepSkyROOT=deepskyproject
   - mkdir -p build
   - cd build
   - cmake -Wno-dev -DCMAKE_THREAD_LIBS_INIT="-lpthread" -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 ..
