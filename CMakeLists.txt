@@ -289,6 +289,12 @@ foreach( test_source_file ${TEST_SRC} )
         INSTALL_RPATH "${DeepSkyROOT}/lib"
     )
 
+    IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+        set_tests_properties(${tSRC} PROPERTIES
+            ENVIRONMENT "GNUTERM=pngcairo"
+        )
+    ENDIF()
+
 endforeach( test_source_file ${TEST_SRC} )
 
 include(GoogleTest)
@@ -301,6 +307,12 @@ foreach( test_source_file ${TEST_SRC} )
         BUILD_RPATH   "${DeepSkyROOT}/lib"
         INSTALL_RPATH "${DeepSkyROOT}/lib"
     )
+
+    IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+        set_tests_properties(${tSRC} PROPERTIES
+            ENVIRONMENT "GNUTERM=pngcairo"
+        )
+    ENDIF()
 
 endforeach( test_source_file ${TEST_SRC} )
 
@@ -335,6 +347,12 @@ foreach( test_util_file ${TEST_UTIL} )
         BUILD_RPATH   "${DeepSkyROOT}/lib"
         INSTALL_RPATH "${DeepSkyROOT}/lib"
     )
+
+    IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+        set_tests_properties(${tUTIL} PROPERTIES
+            ENVIRONMENT "GNUTERM=pngcairo"
+        )
+    ENDIF()
 
 endforeach( test_util_file ${TEST_UTIL} )
 
