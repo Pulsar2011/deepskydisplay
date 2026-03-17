@@ -153,34 +153,34 @@ TEST(test_version, version_equal)
 {
 
     std::string ver=gGIT::version();
-    ASSERT_EQ(!ver.compare(this_VERSION), true);
-    ASSERT_EQ(gGIT::isEqual(ver), true);
-    ASSERT_EQ(gGIT::isEqual(this_VERSION), true);
+    ASSERT_EQ(!ver.compare(this_VERSION), true) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
+    ASSERT_EQ(gGIT::isEqual(ver), true) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
+    ASSERT_EQ(gGIT::isEqual(this_VERSION), true) <<  "Version string mismatch: "<<this_VERSION<<" vs "<<this_VERSION;
 
-    ASSERT_EQ(gGIT::isNotEqual(ver), false);
-    ASSERT_EQ(gGIT::isNotEqual(this_VERSION), false);
+    ASSERT_EQ(gGIT::isNotEqual(ver), false) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
+    ASSERT_EQ(gGIT::isNotEqual(this_VERSION), false) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
 
-    ASSERT_EQ(gGIT::isEqual(this_VERSION_SHORT), false);
-    ASSERT_EQ(gGIT::isEqual(this_VERSION_SHA1), false);
+    ASSERT_EQ(gGIT::isEqual(this_VERSION_SHORT), false) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
+    ASSERT_EQ(gGIT::isEqual(this_VERSION_SHA1), false) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
 
-    ASSERT_EQ(gGIT::isNotEqual(this_VERSION_SHORT), true);
+    ASSERT_EQ(gGIT::isNotEqual(this_VERSION_SHORT), true) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
     ASSERT_EQ(gGIT::isNotEqual(this_VERSION_SHA1), true);
 }
 
 TEST(test_version, acessor)
 {
     std::string ver = gGIT::version();
-    ASSERT_EQ(!ver.compare(this_VERSION), true);
+    ASSERT_EQ(!ver.compare(this_VERSION), true) << "Version string mismatch: "<<ver<<" vs "<<this_VERSION;
 
     std::string ver_short = gGIT::version_short();
-    ASSERT_EQ(!ver_short.compare(this_VERSION_SHORT), true);
+    ASSERT_EQ(!ver_short.compare(this_VERSION_SHORT), true)<< "Version string mismatch: "<<ver<<" vs "<<this_VERSION;;
 
     std::string sha1 = gGIT::sha1();
-    ASSERT_EQ(!sha1.compare(this_VERSION_SHA1), true);
+    ASSERT_EQ(!sha1.compare(this_VERSION_SHA1), true)<< "Version string mismatch: "<<ver<<" vs "<<this_VERSION;;
 
-    ASSERT_EQ(gGIT::checkVersion(this_VERSION), true);
-    ASSERT_EQ(gGIT::checkVersionShort(this_VERSION_SHORT), true);
-    ASSERT_EQ(gGIT::checkSHA1(this_VERSION_SHA1), true);
+    ASSERT_EQ(gGIT::checkVersion(this_VERSION), true)<< "Version string mismatch: "<<ver<<" vs "<<this_VERSION;;
+    ASSERT_EQ(gGIT::checkVersionShort(this_VERSION_SHORT), true)<< "Version string mismatch: "<<ver<<" vs "<<this_VERSION;;
+    ASSERT_EQ(gGIT::checkSHA1(this_VERSION_SHA1), true)<< "Version string mismatch: "<<ver<<" vs "<<this_VERSION;;
 }
 
 TEST(test_version, version_newer)
