@@ -15,6 +15,7 @@ stages:
 variables:
   GIT_SUBMODULE_STRATEGY: normal
   DEBIAN_FRONTEND: noninteractive
+  GIT_DEPTH: "0"
 
 before_script:
   - apt-get update
@@ -22,8 +23,9 @@ before_script:
   - apt-get install -y libgsl-dev qt6-base-dev
   - apt-get install -y doxygen graphviz pkg-config libblas-dev liblapack-dev
   - apt-get install -y build-essential clang pkg-config autoconf automake libtool ca-certificates libfftw3-dev
-  - apt-get install -y gdb libboost-filesystem-dev libboost-chrono-dev libboost-thread-dev libboost-regex-dev npm gnuplot
+  - apt-get install -y gdb libboost-filesystem-dev libboost-chrono-dev libboost-thread-dev libboost-regex-dev npm
   - apt-get install -y libpthread-stubs0-dev patchelf
+  - apt-get install -y gnuplot
 
 deps:
   stage: .pre
@@ -51,6 +53,7 @@ build:
     - job: deps
       artifacts: true
   script:
+  - git fetch --tags --force
   - export DeepSkyROOT=$(pwd)/deepskyproject
   - mkdir -p build && cd build
   - cmake -Wno-dev -DCMAKE_THREAD_LIBS_INIT="-lpthread" -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 ..
