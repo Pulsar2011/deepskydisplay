@@ -25,7 +25,7 @@ before_script:
   - apt-get install -y build-essential clang pkg-config autoconf automake libtool ca-certificates libfftw3-dev
   - apt-get install -y gdb libboost-filesystem-dev libboost-chrono-dev libboost-thread-dev libboost-regex-dev npm
   - apt-get install -y libpthread-stubs0-dev patchelf
-  - apt-get install -y gnuplot
+  - apt-get install -y gnuplot-qt libcairo2 libpango-1.0-0 libpangocairo-1.0-0
 
 deps:
   stage: .pre
@@ -55,6 +55,7 @@ build:
   script:
   - git fetch --tags --force
   - export DeepSkyROOT=$(pwd)/deepskyproject
+  - export GNUTERM="pngcairo"
   - mkdir -p build && cd build
   - cmake -Wno-dev -DCMAKE_THREAD_LIBS_INIT="-lpthread" -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 ..
   - make -j "$(nproc --all)"
@@ -72,7 +73,9 @@ test:
       artifacts: true
   script:
   - export DeepSkyROOT=$(pwd)/deepskyproject
+  - export GNUTERM="pngcairo"
   - cd build
+  - gnuplot -e "set terminal pngcairo; set output '/tmp/test.png'; plot sin(x); set output" && echo "gnuplot pngcairo OK" || echo "gnuplot pngcairo FAILED"
   - ctest --output-on-failure --test-dir .
 
 create-pages:
