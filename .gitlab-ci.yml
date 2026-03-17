@@ -6,9 +6,6 @@
 image:
   name: gcc:13-bookworm
 
-variables:
-  DeepSkyROOT: "/usr/local"
-
 stages:
 - .pre
 - build
@@ -64,9 +61,7 @@ build:
     - job: deps
       artifacts: true
   script:
-  - ls
-  - ls deepskyproject
-  - export DeepSkyROOT=deepskyproject
+  - export DeepSkyROOT=$(pwd)/deepskyproject
   - mkdir -p build
   - cd build
   - cmake -Wno-dev -DCMAKE_THREAD_LIBS_INIT="-lpthread" -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 ..
@@ -81,7 +76,10 @@ test:
   needs:
     - job: build
       artifacts: true
+    - job: deps
+      artifacts: true
   script:
+  - export DeepSkyROOT=$(pwd)/deepskyproject
   - cd build
   - ctest --output-on-failure
 
