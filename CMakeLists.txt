@@ -294,7 +294,7 @@ foreach( test_source_file ${TEST_SRC} )
         BUILD_RPATH   "${DeepSkyROOT}/lib"
         INSTALL_RPATH "${DeepSkyROOT}/lib"
     )
-    
+
 endforeach( test_source_file ${TEST_SRC} )
 
 #-------------------- Configuration de la bibliothèque
@@ -308,6 +308,11 @@ add_library(
 )
 
 target_link_libraries(DSTdisplay ${DSTfits} ${QT_LIBS} matplot)
+
+set_target_properties(DSTdisplay PROPERTIES
+    BUILD_RPATH   "${DeepSkyROOT}/lib"
+    INSTALL_RPATH "${DeepSkyROOT}/lib"
+)
 
 #-------------------- Add Matplot++ executable example
 foreach( test_util_file ${TEST_UTIL} )
