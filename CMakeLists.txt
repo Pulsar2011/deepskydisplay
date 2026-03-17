@@ -291,12 +291,6 @@ foreach( test_source_file ${TEST_SRC} )
         INSTALL_RPATH "${DeepSkyROOT}/lib"
     )
 
-    IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-        set_tests_properties(${tSRC} PROPERTIES
-            ENVIRONMENT "GNUTERM=pngcairo"
-        )
-    ENDIF()
-
 endforeach( test_source_file ${TEST_SRC} )
 
 
