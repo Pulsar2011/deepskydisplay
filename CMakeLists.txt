@@ -259,6 +259,11 @@ add_subdirectory(googletest  EXCLUDE_FROM_ALL)
 include_directories(${PARENT_PATH_OF_GTEST}/googltest/googltest/include)
 enable_testing()
 
+# Embed the library search path directly in the ELF binary
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+
+
 foreach( test_source_file ${TEST_SRC} )
 	get_filename_component( tSRC ${test_source_file} NAME_WE)
 	add_executable(
@@ -272,6 +277,10 @@ foreach( test_source_file ${TEST_SRC} )
         target_link_libraries( ${tSRC} DSTdisplay ${Boost_LIBRARIES} gtest gtest_main matplot)
     endif(COMPILER_SUPPORTS_CXX17)
 
+    set_target_properties(${tSRC} PROPERTIES
+        BUILD_RPATH   "${DeepSkyROOT}/lib"
+        INSTALL_RPATH "${DeepSkyROOT}/lib"
+    )
 
 endforeach( test_source_file ${TEST_SRC} )
 
@@ -280,6 +289,12 @@ include(GoogleTest)
 foreach( test_source_file ${TEST_SRC} )
     get_filename_component( tSRC ${test_source_file} NAME_WE)
     gtest_discover_tests(${tSRC})
+
+    set_target_properties(${tSRC} PROPERTIES
+        BUILD_RPATH   "${DeepSkyROOT}/lib"
+        INSTALL_RPATH "${DeepSkyROOT}/lib"
+    )
+    
 endforeach( test_source_file ${TEST_SRC} )
 
 #-------------------- Configuration de la bibliothèque
@@ -303,6 +318,11 @@ foreach( test_util_file ${TEST_UTIL} )
 	)
 
     target_link_libraries(${tUTIL} matplot)
+
+    set_target_properties(${tUTIL} PROPERTIES
+        BUILD_RPATH   "${DeepSkyROOT}/lib"
+        INSTALL_RPATH "${DeepSkyROOT}/lib"
+    )
 
 endforeach( test_util_file ${TEST_UTIL} )
 
