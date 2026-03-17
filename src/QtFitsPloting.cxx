@@ -9,6 +9,7 @@
 
 #include <ranges>
 #include <exception>
+#include <stdexcept>
 
 #include <DSTdisplay/QtDisplay.h>
 #include "QtFITSviewer.h"

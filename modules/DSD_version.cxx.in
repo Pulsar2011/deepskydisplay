@@ -1,4 +1,8 @@
 #include <DSTdisplay/DSD_version.h> //update as appropriate
+#include <stdexcept>
+#include <exception>
+
+
 
 // Namespace DSD stand For DeepSkyDisplay.
 namespace DSD
