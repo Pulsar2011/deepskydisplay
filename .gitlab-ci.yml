@@ -80,6 +80,8 @@ create-pages:
     - job: deps
       artifacts: true
   script:
+    - export DeepSkyROOT=$(pwd)/deepskyproject
+    - export LD_LIBRARY_PATH=${DeepSkyROOT}/lib:${LD_LIBRARY_PATH}
     - mkdir public
     - npm install mathjax@2
     - cmake .
