@@ -46,14 +46,7 @@ deps:
   artifacts:
     expire_in: 24 hrs
     paths:
-      - deepskyproject/lib/libDSTfits*
-      - deepskyproject/include/DSTfits
-      - deepskyproject/lib/libwcs*
-      - deepskyproject/lib/libMinuit*
-      - deepskyproject/lib/libcfitsio*
-      - deepskyproject/include/Minuit2
-      - deepskyproject/include/wcslib
-      - deepskyproject/include/cfitsio
+      - deepskyproject/
 
 build:
   stage: build
@@ -69,7 +62,7 @@ build:
   artifacts:
     expire_in: 2 hrs
     paths:
-    - build
+    - build/
 
 test:
   stage: test
@@ -87,6 +80,8 @@ create-pages:
   stage: deploy
   needs:
     - job: build
+      artifacts: true
+    - job: deps
       artifacts: true
   script:
     - mkdir public
