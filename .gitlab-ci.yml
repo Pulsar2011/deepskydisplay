@@ -73,7 +73,7 @@ test:
   script:
   - export DeepSkyROOT=$(pwd)/deepskyproject
   - cd build
-  - ctest --output-on-failure
+  - ctest --output-on-failure --test-dir .
 
 create-pages:
   stage: deploy
