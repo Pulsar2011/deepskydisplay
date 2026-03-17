@@ -271,6 +271,8 @@ ENDIF()
 
 #-------------------- Configuration des test
 
+include(GoogleTest)
+
 foreach( test_source_file ${TEST_SRC} )
 	get_filename_component( tSRC ${test_source_file} NAME_WE)
 	add_executable(
@@ -297,24 +299,6 @@ foreach( test_source_file ${TEST_SRC} )
 
 endforeach( test_source_file ${TEST_SRC} )
 
-include(GoogleTest)
-
-foreach( test_source_file ${TEST_SRC} )
-    get_filename_component( tSRC ${test_source_file} NAME_WE)
-    gtest_discover_tests(${tSRC})
-
-    set_target_properties(${tSRC} PROPERTIES
-        BUILD_RPATH   "${DeepSkyROOT}/lib"
-        INSTALL_RPATH "${DeepSkyROOT}/lib"
-    )
-
-    IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-        set_tests_properties(${tSRC} PROPERTIES
-            ENVIRONMENT "GNUTERM=pngcairo"
-        )
-    ENDIF()
-
-endforeach( test_source_file ${TEST_SRC} )
 
 #-------------------- Configuration de la bibliothèque
 
@@ -347,12 +331,6 @@ foreach( test_util_file ${TEST_UTIL} )
         BUILD_RPATH   "${DeepSkyROOT}/lib"
         INSTALL_RPATH "${DeepSkyROOT}/lib"
     )
-
-    IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-        set_tests_properties(${tUTIL} PROPERTIES
-            ENVIRONMENT "GNUTERM=pngcairo"
-        )
-    ENDIF()
 
 endforeach( test_util_file ${TEST_UTIL} )
 
