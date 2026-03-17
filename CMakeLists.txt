@@ -254,7 +254,7 @@ if(DOXYGEN_FOUND)
 )
 endif(DOXYGEN_FOUND)
 
-#-------------------- Configuration des test
+#-------------------- Configuration RPATH
 add_subdirectory(googletest  EXCLUDE_FROM_ALL)
 include_directories(${PARENT_PATH_OF_GTEST}/googltest/googltest/include)
 enable_testing()
@@ -262,7 +262,14 @@ enable_testing()
 # Embed the library search path directly in the ELF binary
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+    # ... tes flags existants ...
+    set(CMAKE_EXE_LINKER_FLAGS    "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--disable-new-dtags")
+ENDIF()
 
+
+#-------------------- Configuration des test
 
 foreach( test_source_file ${TEST_SRC} )
 	get_filename_component( tSRC ${test_source_file} NAME_WE)

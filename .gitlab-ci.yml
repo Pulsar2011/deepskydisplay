@@ -29,9 +29,6 @@ deps:
   stage: .pre
   script:
     # Try using wget to download the repository archive instead of git clone
-    - pwd
-    - ls
-    - ls ..
     - mkdir -p deepskyproject
     - git clone https://oauth2:${DEEPSKYFITS_TOKEN}@gitlab.in2p3.fr/deepskyproject/deepskyfits.git
     - cd deepskyfits
@@ -55,8 +52,7 @@ build:
       artifacts: true
   script:
   - export DeepSkyROOT=$(pwd)/deepskyproject
-  - mkdir -p build
-  - cd build
+  - mkdir -p build && cd build
   - cmake -Wno-dev -DCMAKE_THREAD_LIBS_INIT="-lpthread" -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 ..
   - make -j "$(nproc --all)"
   artifacts:
