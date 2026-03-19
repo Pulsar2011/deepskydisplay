@@ -29,10 +29,12 @@
 #include "ui_QtFITSviewer.h"
 
 #include <DSTfits/FITSimg.h>
+#include <DSTfits/FITSmanager.h>
 
 using namespace DSL;
 
 #include <string>
+#include <vector>
 #include <functional>
 #include <thread>
 #include <mutex>
@@ -161,6 +163,61 @@ namespace QtFITS
         QVector<double> cdf;
     };
 }
+
+// ---------------------------------------------------------------------------
+// HDU enumeration
+// ---------------------------------------------------------------------------
+
+/// Plain-old-data: describes one HDU as shown in the HDU list window.
+struct HduInfo {
+    int         index;   ///< 1-based HDU position in the file
+    std::string extname; ///< EXTNAME keyword value, or "HDU<index>" if absent
+    enum class Type { IMG, TBL, BTBL, UNKNOWN } type;
+    int naxis;           ///< NAXIS value (0 = empty primary / no image)
+    int naxis3;          ///< NAXIS3 when type==IMG && naxis==3; 0 otherwise
+};
+
+/// Enumerate all HDUs in an open FITSmanager instance.
+/// Header-only traversal: no pixel data is loaded.
+std::vector<HduInfo> enumerateHDUs(DSL::FITSmanager& fm);
+
+// ---------------------------------------------------------------------------
+// HduListWindow
+// ---------------------------------------------------------------------------
+
+class QTableWidget;
+
+/// Main application window for the FitsViewer utility.
+/// Shows all HDUs in a FITS file and dispatches viewers on selection.
+/// Closing this window terminates the application.
+class HduListWindow : public QMainWindow
+{
+    Q_OBJECT
+
+public:
+    HduListWindow(const std::string& fitsPath,
+                  const std::vector<HduInfo>& hdus,
+                  std::function<QWidget*(const HduInfo&)> viewerFactory,
+                  QWidget* parent = nullptr);
+
+signals:
+    void hduActivated(int index);   ///< 1-based; emitted on double-click or Enter
+
+public slots:
+    void openViewer(int index);     ///< Creates and shows the correct viewer for HDU N
+
+protected:
+    void closeEvent(QCloseEvent*) override;
+
+private:
+    std::string                              m_fitsPath;
+    std::vector<HduInfo>                     m_hdus;
+    std::function<QWidget*(const HduInfo&)>  m_viewerFactory;
+    QWidget*                                 m_currentViewer = nullptr;
+    QTableWidget*                            m_table = nullptr;
+};
+
+// ---------------------------------------------------------------------------
 
 namespace Ui
 {
