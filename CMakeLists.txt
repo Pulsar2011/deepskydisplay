@@ -77,6 +77,9 @@ endif()
 
 set(BUILD_SHARED_LIBS "YES")
 
+# Export compiler flags so clangd/VSCode IntelliSense resolves include paths correctly.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -v")
 
 #-------------------- GCC specifics
@@ -209,18 +212,14 @@ endif(Qt6_FOUND)
 file(GLOB CORE_SRC "src/*.cxx")
 file(GLOB CORE_HEADER "include/DSTdisplay/*.h")
 file(GLOB TEST_SRC "test/*.cxx")
-file(GLOB TEST_UTIL "util/test_*.cxx")
+file(GLOB UTIL_SRC "util/*.cxx")
 
 set(HEADER_FILES ${CORE_HEADER} src/QtFITSviewer.h DSTdisplay_autogen/include/ui_QtFITSviewer.h)
-
-#-------------------- Configuration MatPlot++
-add_subdirectory(matplotplusplus)
-include_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source ${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot ${DeepSkyROOT}/include ${DeepSkyROOT}/include/Minuit2)
-link_directories(${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot/build/lib/)
 
 link_directories(${DeepSkyROOT}/lib)
 find_library(DSTfits NAMES DSTfits HINTS ${DeepSkyROOT}/lib)
 if(DSTfits)
+    include_directories(${DeepSkyROOT}/include)
     message("-- ${Green}Found${ColourReset} DSTfits: ${DSTfits}")
 else()
     message(WARNING "libDSTfits not found; install the library")
@@ -281,9 +280,9 @@ foreach( test_source_file ${TEST_SRC} )
 	)
 
     if(COMPILER_SUPPORTS_CXX17)
-        target_link_libraries( ${tSRC} DSTdisplay gtest gtest_main matplot)
+        target_link_libraries( ${tSRC} DSTdisplay gtest gtest_main)
     else(COMPILER_SUPPORTS_CXX17)
-        target_link_libraries( ${tSRC} DSTdisplay ${Boost_LIBRARIES} gtest gtest_main matplot)
+        target_link_libraries( ${tSRC} DSTdisplay ${Boost_LIBRARIES} gtest gtest_main)
     endif(COMPILER_SUPPORTS_CXX17)
 
     set_target_properties(${tSRC} PROPERTIES
@@ -292,6 +291,19 @@ foreach( test_source_file ${TEST_SRC} )
     )
 
 endforeach( test_source_file ${TEST_SRC} )
+
+
+#-------------------- Configuration des utilitaires de démonstration
+
+foreach( util_source_file ${UTIL_SRC} )
+    get_filename_component( uSRC ${util_source_file} NAME_WE)
+    add_executable(${uSRC} ${util_source_file})
+    target_link_libraries(${uSRC} DSTdisplay ${QT_LIBS})
+    set_target_properties(${uSRC} PROPERTIES
+        BUILD_RPATH   "${DeepSkyROOT}/lib"
+        INSTALL_RPATH "${DeepSkyROOT}/lib"
+    )
+endforeach( util_source_file ${UTIL_SRC} )
 
 
 #-------------------- Configuration de la bibliothèque
@@ -304,29 +316,12 @@ add_library(
     ${version_file}
 )
 
-target_link_libraries(DSTdisplay ${DSTfits} ${QT_LIBS} matplot)
+target_link_libraries(DSTdisplay ${DSTfits} ${QT_LIBS})
 
 set_target_properties(DSTdisplay PROPERTIES
     BUILD_RPATH   "${DeepSkyROOT}/lib"
     INSTALL_RPATH "${DeepSkyROOT}/lib"
 )
-
-#-------------------- Add Matplot++ executable example
-foreach( test_util_file ${TEST_UTIL} )
-    get_filename_component( tUTIL ${test_util_file} NAME_WE)
-	add_executable(
-		${tUTIL}
-		${test_util_file}
-	)
-
-    target_link_libraries(${tUTIL} matplot)
-
-    set_target_properties(${tUTIL} PROPERTIES
-        BUILD_RPATH   "${DeepSkyROOT}/lib"
-        INSTALL_RPATH "${DeepSkyROOT}/lib"
-    )
-
-endforeach( test_util_file ${TEST_UTIL} )
 
 #-------------------- ADD DISTCLEAN CUSTOM TARGET
 
@@ -371,23 +366,9 @@ add_dependencies(distclean distclean_run)
 #-------------------- Installation proceedure
 if(CMAKE_INSTALL_PREFIX)
     INSTALL(FILES ${HEADER_FILES} DESTINATION include/DSTdisplay)
-    INSTALL(TARGETS DSTdisplay matplot
+    INSTALL(TARGETS DSTdisplay
 		RUNTIME DESTINATION exe
 		LIBRARY DESTINATION lib
 		ARCHIVE DESTINATION lib
-    )
-
-    INSTALL(
-        DIRECTORY ${CMAKE_SOURCE_DIR}/matplotplusplus/source/matplot/
-        DESTINATION include/matplot
-        FILES_MATCHING
-            PATTERN "*.h" PATTERN "*.hpp" PATTERN "*.tpp" PATTERN "*.ipp" PATTERN "*.inl" PATTERN "*.tcc"
-        PATTERN "CMakeFiles" EXCLUDE
-        PATTERN "build" EXCLUDE
-        PATTERN ".git" EXCLUDE
-        PATTERN ".github" EXCLUDE
-        PATTERN "cmake" EXCLUDE
-        PATTERN "docs" EXCLUDE
-        PATTERN "test" EXCLUDE
     )
 endif(CMAKE_INSTALL_PREFIX)
