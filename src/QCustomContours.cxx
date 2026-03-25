@@ -8,7 +8,7 @@
 //  Copyright (c) 2025, All rights reserved
 //
 
-#include "QCustomContours.h"
+#include <DSTdisplay/QCustomContours.h>
 
 #include <algorithm>
 #include <cmath>
