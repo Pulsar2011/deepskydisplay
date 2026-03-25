@@ -323,6 +323,9 @@ set_target_properties(DSTdisplay PROPERTIES
     INSTALL_RPATH "${DeepSkyROOT}/lib"
 )
 
+install(FILES include/DSTdisplay/QCustomContours.h
+        DESTINATION include/DSTdisplay)
+
 #-------------------- ADD DISTCLEAN CUSTOM TARGET
 
 add_custom_target(distclean)
