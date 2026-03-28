@@ -18,6 +18,8 @@
 #include <vector>
 
 #include <DSTdisplay/QtDisplay.h>
+#include <DSTdisplay/QtFitsPloting.h>
+#include <DSTdisplay/QCustomContours.h>
 #include "QtFITSviewer.h"
 #include <DSTdisplay/DSD_version.h>
 #include <DSTfits/FITSexception.h>
@@ -765,8 +767,845 @@ void QtFITSviewer::QtProfileY(QCustomPlot* customPlot,const std::shared_ptr<cons
     }
 } 
 
-#include "QCustomContours.h"
+static void applyPlotOptions(QCPGraph* curve, const std::string& OPTION)
+{
+    auto optVal = [&](const std::string& key) -> std::string {
+        auto pos = OPTION.find(key + "=");
+        if (pos == std::string::npos) return {};
+        auto start = pos + key.size() + 1;
+        auto end   = OPTION.find_first_of(" \t;", start);
+        return OPTION.substr(start, end == std::string::npos ? end : end - start);
+    };
 
+    // --- line pen ---
+    QPen pen = curve->pen();
+
+    if (auto v = optVal("line.color"); !v.empty())
+        pen.setColor(QColor(QString::fromStdString(v)));
+
+    if (auto v = optVal("line.width"); !v.empty())
+        pen.setWidthF(std::stof(v));
+
+    if (auto v = optVal("line.style"); !v.empty()) {
+        static const std::unordered_map<std::string, Qt::PenStyle> penStyles = {
+            {"solid",      Qt::SolidLine},
+            {"dash",       Qt::DashLine},
+            {"dot",        Qt::DotLine},
+            {"dashdot",    Qt::DashDotLine},
+            {"dashdotdot", Qt::DashDotDotLine},
+        };
+        if (auto it = penStyles.find(v); it != penStyles.end())
+            pen.setStyle(it->second);
+    }
+
+    curve->setPen(pen);
+
+    // --- scatter / marker ---
+    QCPScatterStyle scatter = curve->scatterStyle();
+
+    if (auto v = optVal("marker.style"); !v.empty()) {
+        static const std::unordered_map<std::string, QCPScatterStyle::ScatterShape> shapes = {
+            {"none",     QCPScatterStyle::ssNone},
+            {"dot",      QCPScatterStyle::ssDot},
+            {"cross",    QCPScatterStyle::ssCross},
+            {"plus",     QCPScatterStyle::ssPlus},
+            {"circle",   QCPScatterStyle::ssCircle},
+            {"disc",     QCPScatterStyle::ssDisc},
+            {"square",   QCPScatterStyle::ssSquare},
+            {"diamond",  QCPScatterStyle::ssDiamond},
+            {"triangle", QCPScatterStyle::ssTriangle},
+            {"star",     QCPScatterStyle::ssStar},
+        };
+        if (auto it = shapes.find(v); it != shapes.end())
+            scatter.setShape(it->second);
+    }
+
+    if (auto v = optVal("marker.size"); !v.empty())
+        scatter.setSize(std::stof(v));
+
+    if (auto v = optVal("marker.color"); !v.empty()) {
+        QColor col(QString::fromStdString(v));
+        scatter.setPen(QPen(col));
+        scatter.setBrush(QBrush(col));
+    }
+
+    curve->setScatterStyle(scatter);
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve( QCustomPlot* qPlot, const std::shared_ptr<const FITStable>& tab, const std::string &xCol  , const std::string &yCol)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtCurve","Null pointer provided for the FITStable.");
+    
+    try
+    {
+        tab->getColumn(xCol);
+        tab->getColumn(yCol);
+    }
+    catch(...)
+    {
+        throw;
+    }
+
+    DSL::dtype xType = tab->getColumn(xCol)->getType();
+    DSL::dtype yType = tab->getColumn(yCol)->getType();
+
+    size_t x_nElem = tab->getColumn(xCol)->getNelem();
+    size_t y_nElem = tab->getColumn(yCol)->getNelem();
+
+    if(x_nElem != y_nElem || x_nElem == 0 || y_nElem == 0)
+        throw FITSexception(BAD_DIMEN,"QtFITSviewer","QtCurve","Columns "+xCol+" and "+yCol+" have different number of elements or one or both are empty ("+std::to_string(x_nElem)+" vs "+std::to_string(y_nElem)+").");
+
+    if(xType == DSL::dtype::tsbyte         || yType == DSL::dtype::tsbyte   ||
+       xType == DSL::dtype::tstring        || yType == DSL::dtype::tstring  ||
+       xType == DSL::dtype::tlogical       || yType == DSL::dtype::tlogical ||
+       xType == DSL::dtype::tbit           || yType == DSL::dtype::tbit     ||
+       xType == DSL::dtype::tbyte          || yType == DSL::dtype::tbyte    ||
+       xType == DSL::dtype::tcplx          || yType == DSL::dtype::tdbcplx   )
+        throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtCurve",tab->getColumn(xCol)->getDataType(xType)+" combined to "+tab->getColumn(yCol)->getDataType(yType)+"  is not supported for plotting.");
+
+    const uint32_t xydT = QtFITS::dtype_pair(xType, yType);
+
+    std::vector<std::shared_ptr<QCPGraph>> curves;
+
+    if(x_nElem == 1)
+    {
+        // QCustomPlot takes ownership; use a no-op deleter to avoid double-free.
+        auto curve = std::shared_ptr<QCPGraph>(new QCPGraph(qPlot->xAxis, qPlot->yAxis), [](QCPGraph*){});
+        switch (xydT)
+        {
+            // tshort = int16_t
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tshort):
+                _QtCurve<int16_t, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tushort):
+                _QtCurve<int16_t, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tint):
+                _QtCurve<int16_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tuint):
+                _QtCurve<int16_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tlong):
+                _QtCurve<int16_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tulong):
+                _QtCurve<int16_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tlonglong):
+                _QtCurve<int16_t, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tulonglong):
+                _QtCurve<int16_t, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tfloat):
+                _QtCurve<int16_t, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tdouble):
+                _QtCurve<int16_t, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tushort = uint16_t
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tshort):
+                _QtCurve<uint16_t, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tushort):
+                _QtCurve<uint16_t, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tint):
+                _QtCurve<uint16_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tuint):
+                _QtCurve<uint16_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tlong):
+                _QtCurve<uint16_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tulong):
+                _QtCurve<uint16_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tlonglong):
+                _QtCurve<uint16_t, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tulonglong):
+                _QtCurve<uint16_t, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tfloat):
+                _QtCurve<uint16_t, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tdouble):
+                _QtCurve<uint16_t, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tint = int32_t
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tshort):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tshort):
+                _QtCurve<int32_t, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tushort):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tushort):
+                _QtCurve<int32_t, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tlong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tlong):
+                _QtCurve<int32_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tulong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tulong):
+                _QtCurve<int32_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tlonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tlonglong):
+                _QtCurve<int32_t, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tulonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tulonglong):
+                _QtCurve<int32_t, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tfloat):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tfloat):
+                _QtCurve<int32_t, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tdouble):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tdouble):
+                _QtCurve<int32_t, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tuint = uint32_t
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tshort):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tshort):
+                _QtCurve<uint32_t, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tushort):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tushort):
+                _QtCurve<uint32_t, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tlong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tlong):
+                _QtCurve<uint32_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tulong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tulong):
+                _QtCurve<uint32_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tlonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tlonglong):
+                _QtCurve<uint32_t, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tulonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tulonglong):
+                _QtCurve<uint32_t, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tfloat):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tfloat):
+                _QtCurve<uint32_t, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tdouble):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tdouble):
+                _QtCurve<uint32_t, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tlonglong = int64_t
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tshort):
+                _QtCurve<int64_t, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tushort):
+                _QtCurve<int64_t, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tint):
+                _QtCurve<int64_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tuint):
+                _QtCurve<int64_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tlong):
+                _QtCurve<int64_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tulong):
+                _QtCurve<int64_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tlonglong):
+                _QtCurve<int64_t, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tulonglong):
+                _QtCurve<int64_t, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tfloat):
+                _QtCurve<int64_t, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tdouble):
+                _QtCurve<int64_t, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tulonglong = uint64_t
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tshort):
+                _QtCurve<uint64_t, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tushort):
+                _QtCurve<uint64_t, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tint):
+                _QtCurve<uint64_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tuint):
+                _QtCurve<uint64_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tlong):
+                _QtCurve<uint64_t, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tulong):
+                _QtCurve<uint64_t, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tlonglong):
+                _QtCurve<uint64_t, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tulonglong):
+                _QtCurve<uint64_t, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tfloat):
+                _QtCurve<uint64_t, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tdouble):
+                _QtCurve<uint64_t, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tfloat = float
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tshort):
+                _QtCurve<float, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tushort):
+                _QtCurve<float, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tint):
+                _QtCurve<float, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tuint):
+                _QtCurve<float, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tlong):
+                _QtCurve<float, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tulong):
+                _QtCurve<float, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tlonglong):
+                _QtCurve<float, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tulonglong):
+                _QtCurve<float, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tfloat):
+                _QtCurve<float, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tdouble):
+                _QtCurve<float, double>(*curve, tab, xCol, yCol);
+                break;
+
+            // tdouble = double
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tshort):
+                _QtCurve<double, int16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tushort):
+                _QtCurve<double, uint16_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tint):
+                _QtCurve<double, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tuint):
+                _QtCurve<double, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tlong):
+                _QtCurve<double, int32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tulong):
+                _QtCurve<double, uint32_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tlonglong):
+                _QtCurve<double, int64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tulonglong):
+                _QtCurve<double, uint64_t>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tfloat):
+                _QtCurve<double, float>(*curve, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tdouble):
+                _QtCurve<double, double>(*curve, tab, xCol, yCol);
+                break;
+
+            default:
+                break;
+        }
+
+        curves.push_back(curve);
+    }
+    else
+    {
+        switch (xydT)
+        {
+            // tshort = int16_t
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tshort):
+                return _QtVectorCurve<int16_t, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tushort):
+                return _QtVectorCurve<int16_t, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tint):
+                return _QtVectorCurve<int16_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tuint):
+                return _QtVectorCurve<int16_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tlong):
+                return _QtVectorCurve<int16_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tulong):
+                return _QtVectorCurve<int16_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tlonglong):
+                return _QtVectorCurve<int16_t, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tulonglong):
+                return _QtVectorCurve<int16_t, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tfloat):
+                return _QtVectorCurve<int16_t, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tshort, DSL::dtype::tdouble):
+                return _QtVectorCurve<int16_t, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tushort = uint16_t
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tshort):
+                return _QtVectorCurve<uint16_t, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tushort):
+                return _QtVectorCurve<uint16_t, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tint):
+                return _QtVectorCurve<uint16_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tuint):
+                return _QtVectorCurve<uint16_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tlong):
+                return _QtVectorCurve<uint16_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tulong):
+                return _QtVectorCurve<uint16_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tlonglong):
+                return _QtVectorCurve<uint16_t, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tulonglong):
+                return _QtVectorCurve<uint16_t, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tfloat):
+                return _QtVectorCurve<uint16_t, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tushort, DSL::dtype::tdouble):
+                return _QtVectorCurve<uint16_t, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tint = int32_t
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tshort):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tshort):
+                return _QtVectorCurve<int32_t, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tushort):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tushort):
+                return _QtVectorCurve<int32_t, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tlong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tlong):
+                return _QtVectorCurve<int32_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tulong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tulong):
+                return _QtVectorCurve<int32_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tlonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tlonglong):
+                return _QtVectorCurve<int32_t, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tulonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tulonglong):
+                return _QtVectorCurve<int32_t, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tfloat):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tfloat):
+                return _QtVectorCurve<int32_t, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tint, DSL::dtype::tdouble):
+            case QtFITS::dtype_pair(DSL::dtype::tlong, DSL::dtype::tdouble):
+                return _QtVectorCurve<int32_t, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tuint = uint32_t
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tshort):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tshort):
+                return _QtVectorCurve<uint32_t, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tushort):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tushort):
+                return _QtVectorCurve<uint32_t, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tint):
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tlong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tlong):
+                return _QtVectorCurve<uint32_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tuint):
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tulong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tulong):
+                return _QtVectorCurve<uint32_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tlonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tlonglong):
+                return _QtVectorCurve<uint32_t, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tulonglong):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tulonglong):
+                return _QtVectorCurve<uint32_t, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tfloat):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tfloat):
+                return _QtVectorCurve<uint32_t, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tuint, DSL::dtype::tdouble):
+            case QtFITS::dtype_pair(DSL::dtype::tulong, DSL::dtype::tdouble):
+                return _QtVectorCurve<uint32_t, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tlonglong = int64_t
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tshort):
+                return _QtVectorCurve<int64_t, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tushort):
+                return _QtVectorCurve<int64_t, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tint):
+                return _QtVectorCurve<int64_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tuint):
+                return _QtVectorCurve<int64_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tlong):
+                _QtVectorCurve<int64_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tulong):
+                return _QtVectorCurve<int64_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tlonglong):
+                return _QtVectorCurve<int64_t, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tulonglong):
+                return _QtVectorCurve<int64_t, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tfloat):
+                return _QtVectorCurve<int64_t, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tlonglong, DSL::dtype::tdouble):
+                return _QtVectorCurve<int64_t, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tulonglong = uint64_t
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tshort):
+                return _QtVectorCurve<uint64_t, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tushort):
+                return _QtVectorCurve<uint64_t, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tint):
+                return _QtVectorCurve<uint64_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tuint):
+                return _QtVectorCurve<uint64_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tlong):
+                return _QtVectorCurve<uint64_t, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tulong):
+                return _QtVectorCurve<uint64_t, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tlonglong):
+                return _QtVectorCurve<uint64_t, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tulonglong):
+                return _QtVectorCurve<uint64_t, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tfloat):
+                return _QtVectorCurve<uint64_t, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tulonglong, DSL::dtype::tdouble):
+                return _QtVectorCurve<uint64_t, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tfloat = float
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tshort):
+                return _QtVectorCurve<float, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tushort):
+                return _QtVectorCurve<float, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tint):
+                return _QtVectorCurve<float, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tuint):
+                return _QtVectorCurve<float, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tlong):
+                return _QtVectorCurve<float, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tulong):
+                return _QtVectorCurve<float, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tlonglong):
+                return _QtVectorCurve<float, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tulonglong):
+                return _QtVectorCurve<float, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tfloat):
+                return _QtVectorCurve<float, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tfloat, DSL::dtype::tdouble):
+                return _QtVectorCurve<float, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            // tdouble = double
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tshort):
+                return _QtVectorCurve<double, int16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tushort):
+                return _QtVectorCurve<double, uint16_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tint):
+                return _QtVectorCurve<double, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tuint):
+                return _QtVectorCurve<double, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tlong):
+                return _QtVectorCurve<double, int32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tulong):
+                return _QtVectorCurve<double, uint32_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tlonglong):
+                return _QtVectorCurve<double, int64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tulonglong):
+                return _QtVectorCurve<double, uint64_t>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tfloat):
+                return _QtVectorCurve<double, float>(qPlot, tab, xCol, yCol);
+                break;
+            case QtFITS::dtype_pair(DSL::dtype::tdouble, DSL::dtype::tdouble):
+                return _QtVectorCurve<double, double>(qPlot, tab, xCol, yCol);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    return curves;  // QCustomPlot owns lifetime; shared_ptr is non-owning
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve( QCustomPlot* qPlot, const std::shared_ptr<const FITStable>& tab, const std::string &yCol)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtCurve","Null pointer provided for the FITStable.");
+    
+    try
+    {
+        tab->getColumn(yCol);
+    }
+    catch(...)
+    {
+        throw;
+    }
+
+    DSL::dtype yType = tab->getColumn(yCol)->getType();
+
+    size_t y_nElem = tab->getColumn(yCol)->getNelem();
+
+    if(y_nElem == 0)
+        throw FITSexception(BAD_DIMEN,"QtFITSviewer","QtCurve","Columns "+yCol+" ise empty ("+std::to_string(y_nElem)+").");
+
+    if(yType == DSL::dtype::tsbyte   ||
+       yType == DSL::dtype::tstring  ||
+       yType == DSL::dtype::tlogical ||
+       yType == DSL::dtype::tbit     ||
+       yType == DSL::dtype::tbyte    )
+        throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtCurve",tab->getColumn(yCol)->getDataType(yType)+"  is not supported for plotting.");
+
+    
+    std::vector<std::shared_ptr<QCPGraph>> curves;
+
+    if(y_nElem == 1)
+    {
+        // QCustomPlot takes ownership; use a no-op deleter to avoid double-free.
+        auto curve = std::shared_ptr<QCPGraph>(new QCPGraph(qPlot->xAxis, qPlot->yAxis), [](QCPGraph*){});
+        switch (yType)
+        {
+            // tshort = int16_t
+            case DSL::dtype::tshort:
+                _QtCurve<int16_t>(*curve, tab, yCol);
+                break;
+
+            // tushort = uint16_t
+            case DSL::dtype::tushort:
+                _QtCurve<uint16_t>(*curve, tab, yCol);
+                break;
+
+            // tint = int32_t
+            case DSL::dtype::tint:
+            case DSL::dtype::tlong:
+                _QtCurve<int32_t>(*curve, tab, yCol);
+                break;
+
+            // tuint = uint32_t
+            case DSL::dtype::tuint:
+            case DSL::dtype::tulong:
+                _QtCurve<uint32_t>(*curve, tab, yCol);
+                break;
+
+            // tlonglong = int64_t
+            case DSL::dtype::tlonglong:
+                _QtCurve<int64_t>(*curve, tab, yCol);
+                break;
+
+            // tulonglong = uint64_t
+            case DSL::dtype::tulonglong:
+                _QtCurve<uint64_t>(*curve, tab, yCol);
+                break;
+
+            // tfloat = float
+            case DSL::dtype::tfloat:
+                _QtCurve<float>(*curve, tab, yCol);
+                break;
+
+            // tdouble = double
+            case DSL::dtype::tdouble:
+                _QtCurve<double>(*curve, tab, yCol);
+                break;
+
+            // float complex
+            case DSL::dtype::tcplx:
+                _QtCplxCurve<float>(*curve, tab, yCol);
+                break;
+
+            // double complex
+            case DSL::dtype::tdbcplx:
+                _QtCplxCurve<double>(*curve, tab, yCol);
+                break;
+
+            default:
+                break;
+        }
+        curves.push_back(curve);
+    }
+    else
+    {
+        switch (yType)
+        {
+            // tshort = int16_t
+            case DSL::dtype::tshort:
+                return _QtVectorCurve<int16_t>(qPlot, tab, yCol);
+                break;
+
+            // tushort = uint16_t
+            case DSL::dtype::tushort:
+                return _QtVectorCurve<uint16_t>(qPlot, tab, yCol);
+                break;
+
+            // tint = int32_t
+            case DSL::dtype::tint:
+            case DSL::dtype::tlong:
+                return _QtVectorCurve<int32_t>(qPlot, tab, yCol);
+                break;
+
+            // tuint = uint32_t
+            case DSL::dtype::tuint:
+            case DSL::dtype::tulong:
+                return _QtVectorCurve<uint32_t>(qPlot, tab, yCol);
+                break;
+
+            // tlonglong = int64_t
+            case DSL::dtype::tlonglong:
+                return _QtVectorCurve<int64_t>(qPlot, tab, yCol);
+                break;
+
+            // tulonglong = uint64_t
+            case DSL::dtype::tulonglong:
+                return _QtVectorCurve<uint64_t>(qPlot, tab, yCol);
+                break;
+
+            // tfloat = float
+            case DSL::dtype::tfloat:
+                return _QtVectorCurve<float>(qPlot, tab, yCol);
+                break;
+
+            // tdouble = double
+            case DSL::dtype::tdouble:
+                return _QtVectorCurve<double>(qPlot, tab, yCol);
+                break;
+
+            // float complex
+            case DSL::dtype::tcplx:
+                return _QtCplxVectorCurve<float>(qPlot, tab, yCol);
+                break;
+
+            // double complex
+            case DSL::dtype::tdbcplx:
+                return _QtCplxVectorCurve<double>(qPlot, tab, yCol);
+                break;
+
+            default:
+                break;
+        }
+
+    }
+
+    return curves;  // QCustomPlot owns lifetime; shared_ptr is non-owning
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(QCustomPlot* qPlot, const std::shared_ptr<const FITStable>& tab, const std::string &xCol, const std::string &yCol)
+{
+    std::vector<std::shared_ptr<QCPGraph>> scatter = QtFITSviewer::QtCurve(qPlot, tab, xCol, yCol);
+
+    for(auto& g : scatter)
+        g->setLineStyle(QCPGraph::lsNone);
+
+    return scatter;
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(QCustomPlot* qPlot, const std::shared_ptr<const FITStable>& tab, const std::string &yCol)
+{
+    std::vector<std::shared_ptr<QCPGraph>> scatter = QtFITSviewer::QtCurve(qPlot, tab, yCol);
+
+    for(auto& g : scatter)
+        g->setLineStyle(QCPGraph::lsNone);
+
+    return scatter;
+}
 
 /**
  * @brief Draw contour levels from a 2D FITS image onto an existing QCustomPlot.
@@ -807,6 +1646,673 @@ void QtFITSviewer::QtContours(QCustomPlot* qPlot, const  std::shared_ptr<const F
             QtFITS::finished &= false;
         } // msg_m released here
     });
+}
+// ===========================================================================
+// File-local helpers (anonymous namespace — not part of QtFITSviewer API)
+// ===========================================================================
+
+namespace {
+
+/// Collect a scalar numeric column as vector<double>, optionally filtered by a RowSet.
+/// Throws BAD_TFORM_DTYPE for non-numeric types (string, logical, bit, byte).
+static std::vector<double> _colToDoubles(
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    const char* caller,
+    const RowSet* rows = nullptr)
+{
+    std::vector<double> out;
+    const auto& form = *tab->getColumn(col);
+    const DSL::dtype t = form.getType();
+
+    if(t == DSL::dtype::tstring  || t == DSL::dtype::tlogical ||
+       t == DSL::dtype::tbit     || t == DSL::dtype::tsbyte   || t == DSL::dtype::tbyte)
+        throw FITSexception(BAD_TFORM_DTYPE, "QtFITSviewer", caller,
+            "Column '"+col+"': type "+form.getDataType(t)+" is not a supported numeric type.");
+
+    const size_t n = rows ? rows->indices().size() : tab->nrows();
+    out.reserve(n);
+
+    auto fill = [&](const auto& vec)
+    {
+        if(rows)
+            for(size_t idx : rows->indices())
+                out.push_back(static_cast<double>(vec[idx]));
+        else
+            for(const auto& x : vec) out.push_back(static_cast<double>(x));
+    };
+
+    switch(t)
+    {
+        case DSL::dtype::tshort:     fill(form.values<int16_t>());   break;
+        case DSL::dtype::tushort:    fill(form.values<uint16_t>());  break;
+        case DSL::dtype::tint:
+        case DSL::dtype::tlong:      fill(form.values<int32_t>());   break;
+        case DSL::dtype::tuint:
+        case DSL::dtype::tulong:     fill(form.values<uint32_t>());  break;
+        case DSL::dtype::tlonglong:  fill(form.values<int64_t>());   break;
+        case DSL::dtype::tulonglong: fill(form.values<uint64_t>());  break;
+        case DSL::dtype::tfloat:     fill(form.values<float>());     break;
+        case DSL::dtype::tdouble:    fill(form.values<double>());    break;
+        default: break;
+    }
+    return out;
+}
+
+/// Collect a ColumnHandle's data as vector<double> (uses ColumnHandle::all<T>().data()).
+static std::vector<double> _handleToDoubles(ColumnHandle handle)
+{
+    std::vector<double> out;
+    const DSL::dtype t = handle.colType();
+
+    auto fill = [&](auto view)
+    {
+        const auto& d = view.data();
+        out.reserve(d.size());
+        for(const auto& x : d) out.push_back(static_cast<double>(x));
+    };
+
+    switch(t)
+    {
+        case DSL::dtype::tshort:     fill(handle.all<int16_t>());   break;
+        case DSL::dtype::tushort:    fill(handle.all<uint16_t>());  break;
+        case DSL::dtype::tint:
+        case DSL::dtype::tlong:      fill(handle.all<int32_t>());   break;
+        case DSL::dtype::tuint:
+        case DSL::dtype::tulong:     fill(handle.all<uint32_t>());  break;
+        case DSL::dtype::tlonglong:  fill(handle.all<int64_t>());   break;
+        case DSL::dtype::tulonglong: fill(handle.all<uint64_t>());  break;
+        case DSL::dtype::tfloat:     fill(handle.all<float>());     break;
+        case DSL::dtype::tdouble:    fill(handle.all<double>());    break;
+        default:
+            throw FITSexception(BAD_TFORM_DTYPE, "QtFITSviewer", "QtPlot(ColumnHandle)",
+                "Column type is not a supported numeric type for plotting.");
+    }
+    return out;
+}
+
+} // anonymous namespace
+
+// ===========================================================================
+// _QtDensityCore — 2-D binned density kernel
+// ===========================================================================
+
+std::shared_ptr<QCPColorMap> QtFITSviewer::_QtDensityCore(
+    QCustomPlot* qPlot,
+    std::vector<double> xs, std::vector<double> ys, std::vector<double> zs,
+    size_t nBinsX, size_t nBinsY, uint8_t logFlag)
+{
+    if(xs.size() != ys.size())
+        throw FITSexception(BAD_DIMEN,"QtFITSviewer","_QtDensityCore",
+            "xs.size()="+std::to_string(xs.size())+" != ys.size()="+std::to_string(ys.size()));
+    if(!zs.empty() && zs.size() != xs.size())
+        throw FITSexception(BAD_DIMEN,"QtFITSviewer","_QtDensityCore",
+            "zs.size() must equal xs.size() when weights are provided.");
+    if(xs.empty())
+        throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","_QtDensityCore","No data points provided.");
+
+    const bool xLog = (logFlag & 0x1) != 0;
+    const bool yLog = (logFlag & 0x2) != 0;
+    const bool zLog = (logFlag & 0x4) != 0;
+
+    // --- transform and filter invalid points for log axes ---
+    std::vector<double> xt, yt, zt;
+    xt.reserve(xs.size());
+    yt.reserve(xs.size());
+    zt.reserve(xs.size());
+    size_t skipped = 0;
+
+    for(size_t i = 0; i < xs.size(); ++i)
+    {
+        double xv = xs[i], yv = ys[i];
+        if(xLog) { if(xv <= 0.0) { ++skipped; continue; } xv = std::log10(xv); }
+        if(yLog) { if(yv <= 0.0) { ++skipped; continue; } yv = std::log10(yv); }
+        xt.push_back(xv);
+        yt.push_back(yv);
+        zt.push_back(zs.empty() ? 1.0 : zs[i]);
+    }
+
+    if(skipped > 0)
+        std::cerr << "[FITSwarning] QtFITSviewer::QtDensityPlot: "
+                  << skipped << " point(s) skipped (non-positive value on log axis)." << std::endl;
+    if(xt.empty())
+        throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","_QtDensityCore",
+            "All data points were filtered out (non-positive values on log axis).");
+
+    // --- compute axis ranges ---
+    const double xMin = *std::min_element(xt.begin(), xt.end());
+    const double xMax = *std::max_element(xt.begin(), xt.end());
+    const double yMin = *std::min_element(yt.begin(), yt.end());
+    const double yMax = *std::max_element(yt.begin(), yt.end());
+    const double xRange = (xMax > xMin) ? (xMax - xMin) : 1.0;
+    const double yRange = (yMax > yMin) ? (yMax - yMin) : 1.0;
+
+    // --- accumulate into 2-D bin array ---
+    std::vector<std::vector<double>> bins(nBinsX, std::vector<double>(nBinsY, 0.0));
+    for(size_t i = 0; i < xt.size(); ++i)
+    {
+        int xi = static_cast<int>(((xt[i] - xMin) / xRange) * static_cast<double>(nBinsX));
+        int yi = static_cast<int>(((yt[i] - yMin) / yRange) * static_cast<double>(nBinsY));
+        xi = std::max(0, std::min(xi, static_cast<int>(nBinsX) - 1));
+        yi = std::max(0, std::min(yi, static_cast<int>(nBinsY) - 1));
+        bins[static_cast<size_t>(xi)][static_cast<size_t>(yi)] += zt[i];
+    }
+
+    // --- create QCPColorMap (QCustomPlot owns it; use no-op deleter) ---
+    auto colorMap = std::shared_ptr<QCPColorMap>(
+        new QCPColorMap(qPlot->xAxis, qPlot->yAxis), [](QCPColorMap*){});
+    colorMap->data()->setSize(static_cast<int>(nBinsX), static_cast<int>(nBinsY));
+    colorMap->data()->setRange(QCPRange(xMin, xMax), QCPRange(yMin, yMax));
+    colorMap->data()->fill(0);
+
+    for(size_t ix = 0; ix < nBinsX; ++ix)
+        for(size_t iy = 0; iy < nBinsY; ++iy)
+        {
+            double val = bins[ix][iy];
+            if(zLog) val = (val > 0.0) ? std::log10(val) : 0.0;
+            colorMap->data()->setCell(static_cast<int>(ix), static_cast<int>(iy), val);
+        }
+
+    // --- color scale setup (reuse existing if already in layout) ---
+    QCPColorScale* colorScale = nullptr;
+    if(!qPlot->plotLayout()->hasElement(0, 1))
+    {
+        colorScale = new QCPColorScale(qPlot);
+        qPlot->plotLayout()->addElement(0, 1, colorScale);
+        QCPMarginGroup* marginGroup = new QCPMarginGroup(qPlot);
+        const QCP::MarginSides sides = QCP::MarginSides(QCP::msBottom) | QCP::msTop;
+        qPlot->axisRect()->setMarginGroup(sides, marginGroup);
+        colorScale->setMarginGroup(sides, marginGroup);
+    }
+    else
+    {
+        colorScale = static_cast<QCPColorScale*>(qPlot->plotLayout()->element(0, 1));
+    }
+    colorScale->setGradient(QtFITS::makeViridisGradient());
+    colorScale->axis()->setLabel(zLog ? "log10(count)" : "count");
+    colorScale->setType(QCPAxis::atRight);
+    colorMap->setColorScale(colorScale);
+    colorMap->rescaleDataRange();
+    colorMap->setInterpolate(false);
+
+    qPlot->xAxis->setLabel(xLog ? "log10(x)" : "x");
+    qPlot->yAxis->setLabel(yLog ? "log10(y)" : "y");
+
+    QMetaObject::invokeMethod(qPlot, [qPlot]() mutable
+    {
+        {
+            std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+            qPlot->rescaleAxes();
+            qPlot->replot();
+        }
+        {
+            std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+            if(!QtFITS::finished) QtFITS::finished |= true;
+            QtFITS::msg_cv.notify_one();
+            QtFITS::finished &= false;
+        }
+    });
+
+    return colorMap;
+}
+
+// ===========================================================================
+// _QtHistogramCore — 1-D histogram kernel
+// ===========================================================================
+
+std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
+    QCustomPlot* qPlot,
+    std::vector<double> data, size_t nBins,
+    uint8_t logFlag, const std::string& OPTION)
+{
+    if(data.empty())
+        throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","_QtHistogramCore","No data provided.");
+
+    // Auto-select bin count via Sturges rule if nBins == 0
+    if(nBins == 0)
+        nBins = static_cast<size_t>(std::max(10.0,
+            std::ceil(1.0 + std::log2(static_cast<double>(data.size())))));
+
+    const bool xLog = (logFlag & 0x1) != 0;
+    const bool yLog = (logFlag & 0x2) != 0;
+
+    // Filter and optionally log-transform values
+    std::vector<double> vals;
+    vals.reserve(data.size());
+    size_t skipped = 0;
+    for(double v : data)
+    {
+        if(xLog)
+        {
+            if(v <= 0.0) { ++skipped; continue; }
+            vals.push_back(std::log10(v));
+        }
+        else
+            vals.push_back(v);
+    }
+    if(skipped > 0)
+        std::cerr << "[FITSwarning] QtFITSviewer::QtHistogram: "
+                  << skipped << " value(s) skipped (non-positive on log x-axis)." << std::endl;
+    if(vals.empty())
+        throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","_QtHistogramCore",
+            "All values were filtered out (non-positive for log x-axis).");
+
+    std::sort(vals.begin(), vals.end());
+    const double vMin = vals.front();
+    const double vMax = vals.back();
+    const double vRange   = (vMax > vMin) ? (vMax - vMin) : 1.0;
+    const double binWidth = vRange / static_cast<double>(nBins);
+
+    // Bin counts
+    std::vector<double> counts(nBins, 0.0);
+    for(double v : vals)
+    {
+        int idx = static_cast<int>((v - vMin) / binWidth);
+        idx = std::max(0, std::min(idx, static_cast<int>(nBins) - 1));
+        counts[static_cast<size_t>(idx)] += 1.0;
+    }
+
+    // Build a step-curve from bin edges (not centres).
+    // For each bin i spanning [leftEdge, rightEdge], emit two points at the same
+    // height c_i. Because rightEdge_i == leftEdge_{i+1}, consecutive bins share
+    // their boundary x-coordinate at different y values, so lsLine draws the
+    // vertical transition automatically — giving a visually continuous histogram.
+    //
+    // Log X: vals[] is already in log₁₀ space, so edge = vMin + i*binWidth is
+    // correct in transformed space; pow(10,·) converts back for axis display.
+    //
+    // Log Y: y=0 is undefined in log space. Zero-count bins are skipped and a
+    // NaN sentinel is inserted to break the polyline there rather than forcing a
+    // zero (which would cause a log-axis rendering artefact or crash).
+    const double nanVal = std::numeric_limits<double>::quiet_NaN();
+    QVector<double> xVec, yVec;
+    xVec.reserve(static_cast<int>(nBins) * 2 + 2);
+    yVec.reserve(static_cast<int>(nBins) * 2 + 2);
+
+    // Opening baseline at y=0 (omitted for log Y — zero undefined on log axis)
+    if (!yLog) {
+        xVec.push_back(xLog ? std::pow(10.0, vMin) : vMin);
+        yVec.push_back(0.0);
+    }
+
+    bool prevNaN = true;
+    for (size_t i = 0; i < nBins; ++i)
+    {
+        const double left  = xLog ? std::pow(10.0, vMin + static_cast<double>(i)     * binWidth)
+                                   : vMin + static_cast<double>(i)     * binWidth;
+        const double right = xLog ? std::pow(10.0, vMin + static_cast<double>(i + 1) * binWidth)
+                                   : vMin + static_cast<double>(i + 1) * binWidth;
+        const double c = counts[i];
+
+        if (yLog && c <= 0.0) {
+            if (!prevNaN) { xVec.push_back(nanVal); yVec.push_back(nanVal); prevNaN = true; }
+            continue;
+        }
+        xVec.push_back(left);   yVec.push_back(c);
+        xVec.push_back(right);  yVec.push_back(c);
+        prevNaN = false;
+    }
+
+    // Closing baseline at y=0 (linear Y only)
+    if (!yLog && !xVec.empty()) {
+        xVec.push_back(xVec.back());
+        yVec.push_back(0.0);
+    }
+
+    // QCustomPlot owns the QCPGraph; use a no-op deleter.
+    auto graph = std::shared_ptr<QCPGraph>(
+        new QCPGraph(qPlot->xAxis, qPlot->yAxis), [](QCPGraph*){});
+    // alreadySorted=true: data is in ascending x order by construction.
+    // Without this, setData() re-sorts and a non-stable sort can swap the two
+    // equal-x points at each bin boundary, converting vertical steps into diagonals.
+    graph->setData(xVec, yVec, true);
+    graph->setLineStyle(QCPGraph::lsLine);
+
+    if(xLog)
+        qPlot->xAxis->setScaleType(QCPAxis::stLogarithmic);
+    if(yLog)
+        qPlot->yAxis->setScaleType(QCPAxis::stLogarithmic);
+
+    qPlot->xAxis->setLabel("value");
+    qPlot->yAxis->setLabel("count");
+
+    applyPlotOptions(graph.get(), OPTION);
+
+    QMetaObject::invokeMethod(qPlot, [qPlot]() mutable
+    {
+        {
+            std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+            qPlot->rescaleAxes();
+            qPlot->replot();
+        }
+        {
+            std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+            if(!QtFITS::finished) QtFITS::finished |= true;
+            QtFITS::msg_cv.notify_one();
+            QtFITS::finished &= false;
+        }
+    });
+
+    return graph;
+}
+
+// ===========================================================================
+// QtDensityPlot — FITStable overloads
+// ===========================================================================
+
+std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& xCol, const std::string& yCol,
+    const std::string& zCol,
+    size_t nBinsX, size_t nBinsY,
+    uint8_t logFlag)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtDensityPlot","Null FITStable pointer.");
+    try { tab->getColumn(xCol); tab->getColumn(yCol); }
+    catch(...) { throw; }
+    if(!zCol.empty())
+        try { tab->getColumn(zCol); }
+        catch(...) { throw; }
+
+    // Only scalar numeric columns are accepted for the (x,y,[z]) form
+    for(const std::string& c : {xCol, yCol})
+    {
+        const auto& form = *tab->getColumn(c);
+        const DSL::dtype t = form.getType();
+        if(t == DSL::dtype::tstring  || t == DSL::dtype::tlogical ||
+           t == DSL::dtype::tbit     || t == DSL::dtype::tsbyte   || t == DSL::dtype::tbyte ||
+           t == DSL::dtype::tcplx    || t == DSL::dtype::tdbcplx)
+            throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtDensityPlot",
+                "Column '"+c+"': type "+form.getDataType(t)+" is not supported for density plot.");
+        if(form.getNelem() != 1)
+            throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtDensityPlot",
+                "Column '"+c+"' has "+std::to_string(form.getNelem())+
+                " elements per row; QtDensityPlot (x,y form) requires scalar columns."
+                " Use the single-column overload for complex or 2-vector columns.");
+    }
+
+    auto xs = _colToDoubles(tab, xCol, "QtDensityPlot");
+    auto ys = _colToDoubles(tab, yCol, "QtDensityPlot");
+    std::vector<double> zs;
+    if(!zCol.empty()) zs = _colToDoubles(tab, zCol, "QtDensityPlot");
+
+    return _QtDensityCore(qPlot, std::move(xs), std::move(ys), std::move(zs), nBinsX, nBinsY, logFlag);
+}
+
+std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    size_t nBinsX, size_t nBinsY,
+    uint8_t logFlag)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtDensityPlot","Null FITStable pointer.");
+    try { tab->getColumn(col); }
+    catch(...) { throw; }
+
+    const auto& form = *tab->getColumn(col);
+    const DSL::dtype t = form.getType();
+    const int64_t nElem = form.getNelem();
+
+    std::vector<double> xs, ys;
+    xs.reserve(tab->nrows());
+    ys.reserve(tab->nrows());
+
+    if(t == DSL::dtype::tcplx)
+    {
+        // complex<float>: real → x, imag → y
+        _collectCplxXY<float>(tab, col, xs, ys);
+    }
+    else if(t == DSL::dtype::tdbcplx)
+    {
+        // complex<double>: real → x, imag → y
+        _collectCplxXY<double>(tab, col, xs, ys);
+    }
+    else if(nElem == 2)
+    {
+        // 2-element vector column: elem[0] → x, elem[1] → y
+        switch(t)
+        {
+            case DSL::dtype::tshort:     _collectVec2XY<int16_t>(tab, col, xs, ys);   break;
+            case DSL::dtype::tushort:    _collectVec2XY<uint16_t>(tab, col, xs, ys);  break;
+            case DSL::dtype::tint:
+            case DSL::dtype::tlong:      _collectVec2XY<int32_t>(tab, col, xs, ys);   break;
+            case DSL::dtype::tuint:
+            case DSL::dtype::tulong:     _collectVec2XY<uint32_t>(tab, col, xs, ys);  break;
+            case DSL::dtype::tlonglong:  _collectVec2XY<int64_t>(tab, col, xs, ys);   break;
+            case DSL::dtype::tulonglong: _collectVec2XY<uint64_t>(tab, col, xs, ys);  break;
+            case DSL::dtype::tfloat:     _collectVec2XY<float>(tab, col, xs, ys);     break;
+            case DSL::dtype::tdouble:    _collectVec2XY<double>(tab, col, xs, ys);    break;
+            default:
+                throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtDensityPlot",
+                    "Column '"+col+"': type "+form.getDataType(t)+
+                    " is not supported for the single-column density plot overload.");
+        }
+    }
+    else
+    {
+        throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtDensityPlot",
+            "Single-column QtDensityPlot requires a complex column (TFORM 'C' or 'M') or "
+            "a 2-element vector column. Column '"+col+"' has TFORM '"+
+            form.getDataType(t)+"' with "+std::to_string(nElem)+" element(s) per row.");
+    }
+
+    std::vector<double> zs;
+    return _QtDensityCore(qPlot, std::move(xs), std::move(ys), zs, nBinsX, nBinsY, logFlag);
+}
+
+std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& xCol, const std::string& yCol,
+    const RowSet& rows,
+    const std::string& zCol,
+    size_t nBinsX, size_t nBinsY,
+    uint8_t logFlag)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtDensityPlot","Null FITStable pointer.");
+
+    auto xs = _colToDoubles(tab, xCol, "QtDensityPlot", &rows);
+    auto ys = _colToDoubles(tab, yCol, "QtDensityPlot", &rows);
+    std::vector<double> zs;
+    if(!zCol.empty()) zs = _colToDoubles(tab, zCol, "QtDensityPlot", &rows);
+
+    return _QtDensityCore(qPlot, std::move(xs), std::move(ys), std::move(zs), nBinsX, nBinsY, logFlag);
+}
+
+std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
+    QCustomPlot* qPlot,
+    ColumnHandle xHandle, ColumnHandle yHandle,
+    size_t nBinsX, size_t nBinsY,
+    uint8_t logFlag)
+{
+    auto xs = _handleToDoubles(xHandle);
+    auto ys = _handleToDoubles(yHandle);
+    std::vector<double> zs;
+    return _QtDensityCore(qPlot, std::move(xs), std::move(ys), zs, nBinsX, nBinsY, logFlag);
+}
+
+// ===========================================================================
+// QtHistogram — FITStable overloads
+// ===========================================================================
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    size_t nBins,
+    std::string OPTION)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtHistogram","Null FITStable pointer.");
+    try { tab->getColumn(col); }
+    catch(...) { throw; }
+
+    const auto& form = *tab->getColumn(col);
+    const DSL::dtype t  = form.getType();
+    const int64_t nElem = form.getNelem();
+
+    if(t == DSL::dtype::tstring  || t == DSL::dtype::tlogical ||
+       t == DSL::dtype::tbit     || t == DSL::dtype::tsbyte   || t == DSL::dtype::tbyte)
+        throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtHistogram",
+            "Column '"+col+"': type "+form.getDataType(t)+" is not supported for histogram.");
+
+    std::vector<double> data;
+    data.reserve(tab->nrows() * (nElem > 0 ? static_cast<size_t>(nElem) : 2));
+
+    if(t == DSL::dtype::tcplx)
+        _collectHistCplx<float>(tab, col, data);
+    else if(t == DSL::dtype::tdbcplx)
+        _collectHistCplx<double>(tab, col, data);
+    else if(nElem > 1)
+    {
+        switch(t)
+        {
+            case DSL::dtype::tshort:     _collectHistVector<int16_t>(tab, col, data);   break;
+            case DSL::dtype::tushort:    _collectHistVector<uint16_t>(tab, col, data);  break;
+            case DSL::dtype::tint:
+            case DSL::dtype::tlong:      _collectHistVector<int32_t>(tab, col, data);   break;
+            case DSL::dtype::tuint:
+            case DSL::dtype::tulong:     _collectHistVector<uint32_t>(tab, col, data);  break;
+            case DSL::dtype::tlonglong:  _collectHistVector<int64_t>(tab, col, data);   break;
+            case DSL::dtype::tulonglong: _collectHistVector<uint64_t>(tab, col, data);  break;
+            case DSL::dtype::tfloat:     _collectHistVector<float>(tab, col, data);     break;
+            case DSL::dtype::tdouble:    _collectHistVector<double>(tab, col, data);    break;
+            default: break;
+        }
+    }
+    else
+    {
+        switch(t)
+        {
+            case DSL::dtype::tshort:     _collectHistScalar<int16_t>(tab, col, data);   break;
+            case DSL::dtype::tushort:    _collectHistScalar<uint16_t>(tab, col, data);  break;
+            case DSL::dtype::tint:
+            case DSL::dtype::tlong:      _collectHistScalar<int32_t>(tab, col, data);   break;
+            case DSL::dtype::tuint:
+            case DSL::dtype::tulong:     _collectHistScalar<uint32_t>(tab, col, data);  break;
+            case DSL::dtype::tlonglong:  _collectHistScalar<int64_t>(tab, col, data);   break;
+            case DSL::dtype::tulonglong: _collectHistScalar<uint64_t>(tab, col, data);  break;
+            case DSL::dtype::tfloat:     _collectHistScalar<float>(tab, col, data);     break;
+            case DSL::dtype::tdouble:    _collectHistScalar<double>(tab, col, data);    break;
+            default: break;
+        }
+    }
+
+    return {_QtHistogramCore(qPlot, std::move(data), nBins, 0, OPTION)};
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    const RowSet& rows,
+    size_t nBins,
+    std::string OPTION)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtHistogram","Null FITStable pointer.");
+
+    // For RowSet-filtered histogram we collect values using _colToDoubles
+    // (scalar column only; vector/complex columns fall through to the unfiltered overload)
+    auto data = _colToDoubles(tab, col, "QtHistogram", &rows);
+    return {_QtHistogramCore(qPlot, std::move(data), nBins, 0, OPTION)};
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
+    QCustomPlot* qPlot,
+    ColumnHandle handle,
+    size_t nBins,
+    std::string OPTION)
+{
+    auto data = _handleToDoubles(handle);
+    return {_QtHistogramCore(qPlot, std::move(data), nBins, 0, OPTION)};
+}
+
+// ===========================================================================
+// QtCurve / QtScatter — RowSet overloads
+// ===========================================================================
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& yCol, const RowSet& rows)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtCurve","Null FITStable pointer.");
+    auto ys = _colToDoubles(tab, yCol, "QtCurve", &rows);
+    return QtCurve(qPlot, std::move(ys));
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& xCol, const std::string& yCol, const RowSet& rows)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtCurve","Null FITStable pointer.");
+    auto xs = _colToDoubles(tab, xCol, "QtCurve", &rows);
+    auto ys = _colToDoubles(tab, yCol, "QtCurve", &rows);
+    return QtCurve(qPlot, std::move(xs), std::move(ys));
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& yCol, const RowSet& rows)
+{
+    auto g = QtCurve(qPlot, tab, yCol, rows);
+    for(auto& p : g) p->setLineStyle(QCPGraph::lsNone);
+    return g;
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& xCol, const std::string& yCol, const RowSet& rows)
+{
+    auto g = QtCurve(qPlot, tab, xCol, yCol, rows);
+    for(auto& p : g) p->setLineStyle(QCPGraph::lsNone);
+    return g;
+}
+
+// ===========================================================================
+// QtCurve / QtScatter — ColumnHandle overloads
+// ===========================================================================
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
+    QCustomPlot* qPlot, ColumnHandle yHandle)
+{
+    auto ys = _handleToDoubles(yHandle);
+    return QtCurve(qPlot, std::move(ys));
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
+    QCustomPlot* qPlot, ColumnHandle xHandle, ColumnHandle yHandle)
+{
+    auto xs = _handleToDoubles(xHandle);
+    auto ys = _handleToDoubles(yHandle);
+    return QtCurve(qPlot, std::move(xs), std::move(ys));
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(
+    QCustomPlot* qPlot, ColumnHandle yHandle)
+{
+    auto g = QtCurve(qPlot, yHandle);
+    for(auto& p : g) p->setLineStyle(QCPGraph::lsNone);
+    return g;
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(
+    QCustomPlot* qPlot, ColumnHandle xHandle, ColumnHandle yHandle)
+{
+    auto g = QtCurve(qPlot, xHandle, yHandle);
+    for(auto& p : g) p->setLineStyle(QCPGraph::lsNone);
+    return g;
 }
 
 // namespace DSL
