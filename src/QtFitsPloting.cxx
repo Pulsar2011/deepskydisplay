@@ -1791,8 +1791,8 @@ std::shared_ptr<QCPColorMap> QtFITSviewer::_QtDensityCore(
     std::vector<std::vector<double>> bins(nBinsX, std::vector<double>(nBinsY, 0.0));
     for(size_t i = 0; i < xt.size(); ++i)
     {
-        int xi = static_cast<int>(((xt[i] - xMin) / xRange) * static_cast<double>(nBinsX));
-        int yi = static_cast<int>(((yt[i] - yMin) / yRange) * static_cast<double>(nBinsY));
+        int xi = static_cast<int>(((xt[i] - xMin) / xRange) * static_cast<double>(nBinsX-1)+0.5);
+        int yi = static_cast<int>(((yt[i] - yMin) / yRange) * static_cast<double>(nBinsY-1)+0.5);
         xi = std::max(0, std::min(xi, static_cast<int>(nBinsX) - 1));
         yi = std::max(0, std::min(yi, static_cast<int>(nBinsY) - 1));
         bins[static_cast<size_t>(xi)][static_cast<size_t>(yi)] += zt[i];
@@ -1901,13 +1901,13 @@ std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
     const double vMin = vals.front();
     const double vMax = vals.back();
     const double vRange   = (vMax > vMin) ? (vMax - vMin) : 1.0;
-    const double binWidth = vRange / static_cast<double>(nBins);
+    const double binWidth = vRange / static_cast<double>(nBins-1);
 
     // Bin counts
     std::vector<double> counts(nBins, 0.0);
     for(double v : vals)
     {
-        int idx = static_cast<int>((v - vMin) / binWidth);
+        int idx = static_cast<int>((v - vMin) / binWidth+0.5);
         idx = std::max(0, std::min(idx, static_cast<int>(nBins) - 1));
         counts[static_cast<size_t>(idx)] += 1.0;
     }
