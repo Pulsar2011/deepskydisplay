@@ -218,7 +218,7 @@ file(GLOB CORE_HEADER "include/DSTdisplay/*.h")
 file(GLOB TEST_SRC "test/*.cxx")
 file(GLOB UTIL_SRC "util/*.cxx")
 
-set(HEADER_FILES ${CORE_HEADER} src/QtFITSviewer.h DSTdisplay_autogen/include/ui_QtFITSviewer.h)
+set(HEADER_FILES ${CORE_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/src/QtFITSviewer.h ${CMAKE_CURRENT_BINARY_DIR}/DSTdisplay_autogen/include/ui_QtFITSviewer.h)
 
 link_directories(${DeepSkyROOT}/lib)
 find_library(DSTfits NAMES DSTfits HINTS ${DeepSkyROOT}/lib)
