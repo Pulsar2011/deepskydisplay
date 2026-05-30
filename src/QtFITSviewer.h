@@ -52,12 +52,13 @@ namespace QtFITS
 
     typedef std::map<std::string,int> qPlotList;
 
+    /**
+     *  @enum QtFITS::zScale
+     *  @details Defines the scaling applied to the colour axis (z) during Qt
+     *           display. This setting does not affect ROOT-based display.
+     */
     enum zScale
     {
-        /**
-         *  @enum QtFITS::zScale
-         *  @details Defines the type of the z axis during Qt display. It do not affect the ROOT display.
-         */
         fLIN,   ///< Linear scale
         fLOG,   ///< Logaritmic scale
         fSINH,  ///< Sinus hyperbolic scale
@@ -65,13 +66,16 @@ namespace QtFITS
         fSQRT,  ///< Squared root scale
     };
     
+    /**
+     *  @class QtFITS::rgb QtFITSviewer.h "QtFITSviewer.h"
+     *  @brief RGBA colour value used by plotting views.
+     *  @details Stores red, green, blue, and alpha components as unsigned
+     *           integers in the range [0, 255]. Component values are clamped
+     *           on construction.
+     */
     class rgb
     {
     public:
-        /**
-         *  @class qfits::rgb QfitsViewer.h "QfitsViewer.h"
-         *  @details Color managment class used by plotting view.
-         */
         unsigned int red;    ///< The quantity of red, ranging from 0 to 255
         unsigned int blue;    ///< The quantity of blue, ranging from 0 to 255
         unsigned int green;    ///< The quantity of green, ranging from 0 to 255
@@ -235,10 +239,14 @@ namespace Ui
 }
 
 /**
- *@class QfitsViewer QfitsViewer.h "QfitsViewer.h"
- *@brief Warper to Qt::QCustomPlot display
+ * @class QtFITSviewer QtFITSviewer.h "QtFITSviewer.h"
+ * @brief Qt/QCustomPlot-based viewer for FITS images and tables.
  *
- *@details Base class to display FITS contents onto standard output. It require Qt v > 4 with QCustomPlot (http://www.qcustomplot.com/) widget source. QfitsViewer as well as its child class provide tha capability to export data to TROOT fromework. Thus, it is  required to install TROOT v6.00  minimum
+ * @details Provides a QMainWindow wrapper around QCustomPlot for displaying
+ *          FITS data.  It requires Qt ≥ 4 with the QCustomPlot widget source
+ *          (http://www.qcustomplot.com/).  All plotting methods are static so
+ *          they can be called without an instance; the class itself is only
+ *          needed when a windowed viewer with resize callbacks is required.
  */
 class QtFITSviewer : public QMainWindow
 {
@@ -645,7 +653,18 @@ public:
      * @param img    FITS image to display.
      * @param OPTION Optional style string (passed to @c applyPlotOptions).
      */
-    static void QtDisplay(QCustomPlot*      , const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+    static void QtDisplay(QCustomPlot* qPlot, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+
+    /**
+     * @brief Display all pixels of a FITS image on a @c QCustomPlot.
+     * @details Renders the full pixel range [0, Nelements) of @p img as a
+     *          colour-mapped @c QCPColorMap. The plot is refreshed
+     *          thread-safely via @c QMetaObject::invokeMethod.
+     * @param qPlot  Target plottable widget (must not be @c nullptr).
+     * @param img    FITS image to display.
+     * @param OPTION Optional style string (passed to @c applyPlotOptions).
+     */
+    static void QtDisplay(QCPAxisRect* qPlot, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
 
     /**
      * @brief Display a pixel sub-range of a FITS image on a @c QCustomPlot.
@@ -658,6 +677,30 @@ public:
     static void QtDisplay(QCustomPlot*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
 
     /**
+     * @brief Display a pixel sub-range of a FITS image on a @c QCustomPlot.
+     * @param qPlot  Target plot widget.
+     * @param img    FITS image to display.
+     * @param iMin   First pixel index to display (0-based, inclusive).
+     * @param iMax   One-past-last pixel index to display.
+     * @param OPTION Optional style string.
+     */
+    static void QtDisplay(QCPAxisRect*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
+
+    /**
+     * @brief Display a FITS image on a @c QCPAxisRect with an explicit colour-scale range.
+     * @details Renders the full image then clamps the colormap display range to
+     *          [@p zMin, @p zMax]. Use this instead of the @c size_t overload when
+     *          you want to pass intensity values (e.g. percentiles) rather than
+     *          pixel index bounds.
+     * @param qPlot  Target axis rect.
+     * @param img    FITS image to display.
+     * @param zMin   Lower intensity bound for the colour scale.
+     * @param zMax   Upper intensity bound for the colour scale.
+     * @param OPTION Optional style string.
+     */
+    static void QtDisplay(QCPAxisRect*      , const std::shared_ptr<const FITScube>&, double zMin, double zMax, std::string OPTION=std::string());
+
+    /**
      * @brief Display a single image layer (2-D slice) of a data cube.
      * @param qPlot  Target plot widget.
      * @param img    FITS data cube.
@@ -665,6 +708,15 @@ public:
      * @param OPTION Optional style string.
      */
     static void QtDisplayLayer(QCustomPlot* , const std::shared_ptr<const FITScube>&, const size_t&, std::string OPTION=std::string());
+
+    /**
+     * @brief Display a single image layer (2-D slice) of a data cube on a @c QCPAxisRect.
+     * @param qPlot  Target axis rect.
+     * @param img    FITS data cube.
+     * @param iLayer 0-based layer index along the third axis.
+     * @param OPTION Optional style string.
+     */
+    static void QtDisplayLayer(QCPAxisRect* , const std::shared_ptr<const FITScube>&, const size_t&, std::string OPTION=std::string());
 
     /**
      * @brief Overlay all pixels of a second FITS image onto an existing plot.
@@ -675,6 +727,8 @@ public:
      * @param OPTION Optional style string.
      */
     static void Overlay(QCustomPlot*, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+    /// @copydoc Overlay(QCustomPlot*, const std::shared_ptr<const FITScube>&, std::string)
+    static void Overlay(QCPAxisRect*, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
 
     /**
      * @brief Overlay a pixel sub-range of a FITS image onto an existing plot.
@@ -685,6 +739,8 @@ public:
      * @param OPTION Optional style string.
      */
     static void Overlay(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
+    /// @copydoc Overlay(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string)
+    static void Overlay(QCPAxisRect*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
 
     /**
      * @brief Display a FITS image with axes labelled in WCS sky coordinates.
@@ -726,6 +782,18 @@ public:
      */
     static void QtDisplayInWCS(QCustomPlot*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string OPTION=std::string());
 
+    /// @copydoc QtDisplayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, std::string)
+    static void QtDisplayInWCS(QCPAxisRect*      , const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+
+    /// @copydoc QtDisplayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t& wcsIdx, std::string)
+    static void QtDisplayInWCS(QCPAxisRect*      , const std::shared_ptr<const FITScube>&, const size_t& wcsIdx, std::string OPTION=std::string());
+
+    /// @copydoc QtDisplayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string)
+    static void QtDisplayInWCS(QCPAxisRect*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
+
+    /// @copydoc QtDisplayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string)
+    static void QtDisplayInWCS(QCPAxisRect*      , const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string OPTION=std::string());
+
     /**
      * @brief Overlay a FITS image onto an existing WCS-labelled plot.
      * @param qPlot  Target plot widget.
@@ -763,6 +831,18 @@ public:
      * @param OPTION Optional style string.
      */
     static void OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t &, std::string OPTION=std::string());
+
+    /// @copydoc OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, std::string)
+    static void OverlayInWCS(QCPAxisRect*, const std::shared_ptr<const FITScube>&, std::string OPTION=std::string());
+
+    /// @copydoc OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, std::string)
+    static void OverlayInWCS(QCPAxisRect*, const std::shared_ptr<const FITScube>&, const size_t& wcsIdx, std::string OPTION=std::string());
+
+    /// @copydoc OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string)
+    static void OverlayInWCS(QCPAxisRect*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, std::string OPTION=std::string());
+
+    /// @copydoc OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string)
+    static void OverlayInWCS(QCPAxisRect*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string OPTION=std::string());
 
     /**
      * @brief Compute and plot a pixel histogram for a full FITS image.
@@ -948,7 +1028,13 @@ public:
         return {curve};
     }
 
-    /// Single-vector QtCurve: x is implicit 0-based index, y comes from yData.
+    /**
+     * @brief Plot a @c std::vector as a line curve (y only, x = 0-based index).
+     * @tparam U Numeric type of y values (must satisfy @c is_allowed_storage_type_v).
+     * @param qPlot Target plot widget.
+     * @param yData y-coordinate values.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename U>
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(QCustomPlot* qPlot, std::vector<U> yData)
     {
@@ -987,7 +1073,17 @@ public:
      */
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(QCustomPlot* qPlot, const std::shared_ptr<const FITStable>& tab, const std::string &xCol, const std::string &yCol);
 
-    /// Two-vector QtScatter: delegates to QtCurve then removes line.
+    /**
+     * @brief Plot two @c std::vector containers as a scatter diagram.
+     * @details Delegates to the @c QtCurve overload then sets line style to
+     *          @c QCPGraph::lsNone so only markers are drawn.
+     * @tparam T Numeric type of x values.
+     * @tparam U Numeric type of y values.
+     * @param qPlot  Target plot widget.
+     * @param xData  x-coordinate values.
+     * @param yData  y-coordinate values (must be the same size as @p xData).
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T, typename U>
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(QCustomPlot* qPlot, std::vector<T> xData, std::vector<U> yData)
     {
@@ -996,7 +1092,13 @@ public:
         return scatter;
     }
 
-    /// Single-vector QtScatter: x is implicit 0-based index.
+    /**
+     * @brief Plot a @c std::vector as a scatter diagram (y only, x = 0-based index).
+     * @tparam U Numeric type of y values.
+     * @param qPlot Target plot widget.
+     * @param yData y-coordinate values.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename U>
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(QCustomPlot* qPlot, std::vector<U> yData)
     {
@@ -1007,8 +1109,24 @@ public:
 
     // ===== QtDensityPlot =====
 
-    /// FITStable — two columns (x, y) with optional z weight.
-    /// logFlag bits: 0x1=xLog, 0x2=yLog, 0x4=zLog (apply log₁₀ to bin counts).
+    /**
+     * @brief Plot a 2-D density map from two scalar FITStable columns.
+     * @details Bins all rows of @p tab into a @c nBinsX × @c nBinsY grid and
+     *          renders the result as a @c QCPColorMap. An optional weight
+     *          column @p zCol accumulates per-bin sums instead of counts.
+     *          Only scalar numeric columns are accepted; complex or multi-element
+     *          vector columns throw @c FITSexception.
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param xCol   Scalar x-value column name.
+     * @param yCol   Scalar y-value column name.
+     * @param zCol   Optional weight column name; empty → each point counts as 1.
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
@@ -1017,8 +1135,20 @@ public:
         size_t nBinsX = 100, size_t nBinsY = 100,
         uint8_t logFlag = 0);
 
-    /// FITStable — single column whose TFORM is complex (C/M) or a 2-element vector.
-    /// Complex: real→x, imag→y. 2-vector: elem[0]→x, elem[1]→y. All other forms throw.
+    /**
+     * @brief Plot a 2-D density map from a single complex or 2-element vector column.
+     * @details For a complex column (TFORM @c 'C' or @c 'M'), maps real → x and
+     *          imag → y. For a 2-element vector column, maps elem[0] → x and
+     *          elem[1] → y. All other column forms throw @c FITSexception.
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param col    Complex or 2-element vector column name.
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
@@ -1026,7 +1156,23 @@ public:
         size_t nBinsX = 100, size_t nBinsY = 100,
         uint8_t logFlag = 0);
 
-    /// FITStable + RowSet (RowSetBuilder<T> converts implicitly via operator RowSet()).
+    /**
+     * @brief Plot a 2-D density map from a row-filtered FITStable.
+     * @details Same as the two-column overload but only the rows identified by
+     *          @p rows are included. A @c RowSetBuilder<T> converts implicitly
+     *          to @c RowSet via @c operator RowSet().
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param xCol   Scalar x-value column name.
+     * @param yCol   Scalar y-value column name.
+     * @param rows   Row selector.
+     * @param zCol   Optional weight column name; empty → each point counts as 1.
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
@@ -1036,14 +1182,39 @@ public:
         size_t nBinsX = 100, size_t nBinsY = 100,
         uint8_t logFlag = 0);
 
-    /// ColumnHandle pair — runtime type dispatch.
+    /**
+     * @brief Plot a 2-D density map from a pair of @c ColumnHandle objects.
+     * @details Column types are dispatched at runtime; all numeric types are
+     *          supported. Use this overload when the column type is not known
+     *          at compile time.
+     * @param qPlot   Target plot widget.
+     * @param xHandle Handle to the x-value column.
+     * @param yHandle Handle to the y-value column.
+     * @param nBinsX  Number of bins along the x axis (default 100).
+     * @param nBinsY  Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
         ColumnHandle xHandle, ColumnHandle yHandle,
         size_t nBinsX = 100, size_t nBinsY = 100,
         uint8_t logFlag = 0);
 
-    /// vector<T,U> overload — no z weight.
+    /**
+     * @brief Plot a 2-D density map from two @c std::vector containers (no per-point weight).
+     * @tparam T Numeric type of x values (must satisfy @c is_allowed_storage_type_v).
+     * @tparam U Numeric type of y values.
+     * @param qPlot  Target plot widget.
+     * @param xData  x-coordinate values.
+     * @param yData  y-coordinate values (must be the same size as @p xData).
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     template<typename T, typename U>
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
@@ -1068,7 +1239,21 @@ public:
         return _QtDensityCore(qPlot, std::move(xs), std::move(ys), zs, nBinsX, nBinsY, logFlag);
     }
 
-    /// vector<T,U,W> overload — with z weight per point.
+    /**
+     * @brief Plot a 2-D density map from three @c std::vector containers (with per-point weight).
+     * @tparam T Numeric type of x values.
+     * @tparam U Numeric type of y values.
+     * @tparam W Numeric type of weight values.
+     * @param qPlot  Target plot widget.
+     * @param xData  x-coordinate values.
+     * @param yData  y-coordinate values (must match @p xData size).
+     * @param zData  Per-point weight values (must match @p xData size).
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     template<typename T, typename U, typename W>
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
@@ -1095,7 +1280,19 @@ public:
         return _QtDensityCore(qPlot, std::move(xs), std::move(ys), std::move(zs), nBinsX, nBinsY, logFlag);
     }
 
-    /// ColumnView<T,U> overload — extracts filtered data and forwards.
+    /**
+     * @brief Plot a 2-D density map from a pair of typed @c ColumnView objects.
+     * @tparam T Element type of the x view.
+     * @tparam U Element type of the y view.
+     * @param qPlot  Target plot widget.
+     * @param xView  Typed view over the x-value column.
+     * @param yView  Typed view over the y-value column.
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     */
     template<typename T, typename U>
     static std::shared_ptr<QCPColorMap> QtDensityPlot(
         QCustomPlot* qPlot,
@@ -1113,8 +1310,18 @@ public:
 
     // ===== QtHistogram (FITStable-aware overloads) =====
 
-    /// FITStable — scalar, vector, or complex column.
-    /// nBins=0: auto (Sturges rule). logFlag: 0x1=xLog (bin in log₁₀), 0x2=yLog (log₁₀ y-axis).
+    /**
+     * @brief Histogram a FITStable column (scalar, vector, or complex TFORM).
+     * @details For vector or complex columns all elements are flattened before
+     *          binning. @p nBins = 0 auto-selects the bin count via the Sturges
+     *          rule. String, logical, and bit columns throw @c FITSexception.
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param col    Column name to histogram.
+     * @param nBins  Number of bins (0 = auto via Sturges rule).
+     * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtHistogram(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
@@ -1122,7 +1329,18 @@ public:
         size_t nBins = 0,
         std::string OPTION = std::string());
 
-    /// FITStable + RowSet.
+    /**
+     * @brief Histogram a scalar FITStable column, restricted to a row subset.
+     * @details Only the rows identified by @p rows are included. A
+     *          @c RowSetBuilder<T> converts implicitly to @c RowSet.
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param col    Scalar column name to histogram.
+     * @param rows   Row selector.
+     * @param nBins  Number of bins (0 = auto via Sturges rule).
+     * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtHistogram(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
@@ -1131,14 +1349,31 @@ public:
         size_t nBins = 0,
         std::string OPTION = std::string());
 
-    /// ColumnHandle — runtime type dispatch.
+    /**
+     * @brief Histogram a column accessed through a @c ColumnHandle.
+     * @details Column type is dispatched at runtime. Use this overload when the
+     *          column type is not known at compile time.
+     * @param qPlot  Target plot widget.
+     * @param handle Handle to the column to histogram.
+     * @param nBins  Number of bins (0 = auto via Sturges rule).
+     * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtHistogram(
         QCustomPlot* qPlot,
         ColumnHandle handle,
         size_t nBins = 0,
         std::string OPTION = std::string());
 
-    /// vector<T> overload.
+    /**
+     * @brief Histogram a @c std::vector of values.
+     * @tparam T Numeric element type (must satisfy @c is_allowed_storage_type_v).
+     * @param qPlot  Target plot widget.
+     * @param data   Values to histogram.
+     * @param nBins  Number of bins (0 = auto via Sturges rule).
+     * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T>
     static std::vector<std::shared_ptr<QCPGraph>> QtHistogram(
         QCustomPlot* qPlot,
@@ -1154,7 +1389,15 @@ public:
         return {_QtHistogramCore(qPlot, std::move(d), nBins, 0, OPTION)};
     }
 
-    /// ColumnView<T> overload.
+    /**
+     * @brief Histogram a typed @c ColumnView.
+     * @tparam T Element type of the view.
+     * @param qPlot  Target plot widget.
+     * @param view   Typed view over the column data.
+     * @param nBins  Number of bins (0 = auto via Sturges rule).
+     * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T>
     static std::vector<std::shared_ptr<QCPGraph>> QtHistogram(
         QCustomPlot* qPlot,
@@ -1168,7 +1411,13 @@ public:
 
     // ===== Helper-type overloads for QtCurve =====
 
-    /// QtCurve: typed ColumnView (y only, x = index).
+    /**
+     * @brief Plot a typed @c ColumnView as a line curve (y only, x = 0-based index).
+     * @tparam T Element type of the view.
+     * @param qPlot Target plot widget.
+     * @param yView Typed view over the y-value column.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T>
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot, ColumnView<T> yView)
@@ -1177,7 +1426,15 @@ public:
         return QtCurve(qPlot, std::vector<T>(d.begin(), d.end()));
     }
 
-    /// QtCurve: typed ColumnView pair (x, y).
+    /**
+     * @brief Plot a pair of typed @c ColumnView objects as a line curve.
+     * @tparam T Element type of the x view.
+     * @tparam U Element type of the y view.
+     * @param qPlot Target plot widget.
+     * @param xView Typed view over the x-value column.
+     * @param yView Typed view over the y-value column.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T, typename U>
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot, ColumnView<T> xView, ColumnView<U> yView)
@@ -1189,29 +1446,61 @@ public:
             std::vector<U>(yd.begin(), yd.end()));
     }
 
-    /// QtCurve: FITStable + RowSet (y only).
+    /**
+     * @brief Plot a row-filtered FITStable column as a line curve (y only, x = row index).
+     * @param qPlot Target plot widget.
+     * @param tab   Source table.
+     * @param yCol  y-value column name.
+     * @param rows  Row selector.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
         const std::string& yCol, const RowSet& rows);
 
-    /// QtCurve: FITStable + RowSet (x, y).
+    /**
+     * @brief Plot two row-filtered FITStable columns as a line curve.
+     * @param qPlot Target plot widget.
+     * @param tab   Source table.
+     * @param xCol  x-value column name.
+     * @param yCol  y-value column name.
+     * @param rows  Row selector.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
         const std::string& xCol, const std::string& yCol, const RowSet& rows);
 
-    /// QtCurve: ColumnHandle (y only).
+    /**
+     * @brief Plot a @c ColumnHandle as a line curve (y only, x = row index).
+     * @param qPlot   Target plot widget.
+     * @param yHandle Handle to the y-value column.
+     * @return Vector of new @c QCPGraph pointers.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot, ColumnHandle yHandle);
 
-    /// QtCurve: ColumnHandle pair (x, y).
+    /**
+     * @brief Plot a pair of @c ColumnHandle objects as a line curve.
+     * @param qPlot   Target plot widget.
+     * @param xHandle Handle to the x-value column.
+     * @param yHandle Handle to the y-value column.
+     * @return Vector of new @c QCPGraph pointers.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot, ColumnHandle xHandle, ColumnHandle yHandle);
 
     // ===== Helper-type overloads for QtScatter =====
 
-    /// QtScatter: typed ColumnView (y only).
+    /**
+     * @brief Scatter-plot a typed @c ColumnView (y only, x = 0-based index).
+     * @tparam T Element type of the view.
+     * @param qPlot Target plot widget.
+     * @param yView Typed view over the y-value column.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T>
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(
         QCustomPlot* qPlot, ColumnView<T> yView)
@@ -1221,7 +1510,15 @@ public:
         return g;
     }
 
-    /// QtScatter: typed ColumnView pair (x, y).
+    /**
+     * @brief Scatter-plot a pair of typed @c ColumnView objects.
+     * @tparam T Element type of the x view.
+     * @tparam U Element type of the y view.
+     * @param qPlot Target plot widget.
+     * @param xView Typed view over the x-value column.
+     * @param yView Typed view over the y-value column.
+     * @return Single-element vector containing the new @c QCPGraph.
+     */
     template<typename T, typename U>
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(
         QCustomPlot* qPlot, ColumnView<T> xView, ColumnView<U> yView)
@@ -1231,23 +1528,49 @@ public:
         return g;
     }
 
-    /// QtScatter: FITStable + RowSet (y only).
+    /**
+     * @brief Scatter-plot a row-filtered FITStable column (y only, x = row index).
+     * @param qPlot Target plot widget.
+     * @param tab   Source table.
+     * @param yCol  y-value column name.
+     * @param rows  Row selector.
+     * @return Vector of new @c QCPGraph pointers.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
         const std::string& yCol, const RowSet& rows);
 
-    /// QtScatter: FITStable + RowSet (x, y).
+    /**
+     * @brief Scatter-plot two row-filtered FITStable columns.
+     * @param qPlot Target plot widget.
+     * @param tab   Source table.
+     * @param xCol  x-value column name.
+     * @param yCol  y-value column name.
+     * @param rows  Row selector.
+     * @return Vector of new @c QCPGraph pointers.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(
         QCustomPlot* qPlot,
         const std::shared_ptr<const FITStable>& tab,
         const std::string& xCol, const std::string& yCol, const RowSet& rows);
 
-    /// QtScatter: ColumnHandle (y only).
+    /**
+     * @brief Scatter-plot a @c ColumnHandle (y only, x = row index).
+     * @param qPlot   Target plot widget.
+     * @param yHandle Handle to the y-value column.
+     * @return Vector of new @c QCPGraph pointers.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(
         QCustomPlot* qPlot, ColumnHandle yHandle);
 
-    /// QtScatter: ColumnHandle pair (x, y).
+    /**
+     * @brief Scatter-plot a pair of @c ColumnHandle objects.
+     * @param qPlot   Target plot widget.
+     * @param xHandle Handle to the x-value column.
+     * @param yHandle Handle to the y-value column.
+     * @return Vector of new @c QCPGraph pointers.
+     */
     static std::vector<std::shared_ptr<QCPGraph>> QtScatter(
         QCustomPlot* qPlot, ColumnHandle xHandle, ColumnHandle yHandle);
 

@@ -220,15 +220,15 @@ TEST_F(QtFITSviewerTest, QtCurve_table_xy)
 
 TEST_F(QtFITSviewerTest, QtHistogram_vector_fixed_bins)
 {
-    // 20 uniform values, 5 fixed bins → graph must have exactly 5 data points.
+    // 20 uniform values, 5 fixed bins → step-curve has 2*nBins+2 points.
     std::vector<float> data;
     for(int i = 0; i < 20; ++i)
         data.push_back(static_cast<float>(i));
 
     auto graphs = QtFITSviewer::QtHistogram(plot, data, /*nBins=*/5);
     ASSERT_EQ(graphs.size(), 1u);
-    EXPECT_EQ(graphs[0]->data()->size(), 5)
-        << "One data point per bin in the histogram graph";
+    EXPECT_EQ(graphs[0]->data()->size(), 12)
+        << "Step-curve: 2*nBins + 2 baseline points (2*5+2=12)";
 }
 
 TEST_F(QtFITSviewerTest, QtHistogram_vector_auto_bins_sturges)
@@ -239,8 +239,8 @@ TEST_F(QtFITSviewerTest, QtHistogram_vector_auto_bins_sturges)
 
     auto graphs = QtFITSviewer::QtHistogram(plot, data, /*nBins=*/0);
     ASSERT_EQ(graphs.size(), 1u);
-    EXPECT_EQ(graphs[0]->data()->size(), 10)
-        << "Sturges auto-binning for N=100 must yield 10 bins";
+    EXPECT_EQ(graphs[0]->data()->size(), 22)
+        << "Sturges auto-binning for N=100 yields 10 bins → step-curve 2*10+2=22 points";
 }
 
 TEST_F(QtFITSviewerTest, QtHistogram_vector_lsImpulse_style)
@@ -248,13 +248,14 @@ TEST_F(QtFITSviewerTest, QtHistogram_vector_lsImpulse_style)
     std::vector<float> data = {1.f, 2.f, 3.f, 4.f, 5.f};
     auto graphs = QtFITSviewer::QtHistogram(plot, data, 3);
     ASSERT_EQ(graphs.size(), 1u);
-    EXPECT_EQ(graphs[0]->lineStyle(), QCPGraph::lsImpulse)
-        << "Histogram must use lsImpulse bar style";
+    EXPECT_EQ(graphs[0]->lineStyle(), QCPGraph::lsLine)
+        << "Histogram uses a step-curve drawn with lsLine";
 }
 
 TEST_F(QtFITSviewerTest, QtHistogram_vector_total_count)
 {
-    // All N values → sum of all bar heights must equal N.
+    // All N values in one hot bin. Step-curve emits each bin count twice (left + right
+    // edge), so the sum of all y-values is 2*N.
     const int N = 50;
     std::vector<double> data(N, 3.14);   // all identical → one hot bin
     auto graphs = QtFITSviewer::QtHistogram(plot, data, 5);
@@ -264,8 +265,8 @@ TEST_F(QtFITSviewerTest, QtHistogram_vector_total_count)
     for(int i = 0; i < graphs[0]->data()->size(); ++i)
         total += graphs[0]->data()->at(i)->value;
 
-    EXPECT_DOUBLE_EQ(total, static_cast<double>(N))
-        << "Sum of histogram bar heights must equal number of input values";
+    EXPECT_DOUBLE_EQ(total, 2.0 * static_cast<double>(N))
+        << "Step-curve sum = 2*N (each bin height appears at both left and right edge)";
 }
 
 TEST_F(QtFITSviewerTest, QtHistogram_vector_logFlag_yaxis_log)
@@ -311,13 +312,13 @@ TEST_F(QtFITSviewerTest, QtHistogram_table_scalar_col)
     auto graphs = QtFITSviewer::QtHistogram(plot, tab, "DATA", /*nBins=*/4);
 
     ASSERT_EQ(graphs.size(), 1u);
-    EXPECT_EQ(graphs[0]->data()->size(), 4);
+    EXPECT_EQ(graphs[0]->data()->size(), 10);  // step-curve: 2*4+2 = 10
 
-    // Total count must equal the number of rows.
+    // Step-curve: each bin height appears at left and right edge, so sum = 2*N.
     double total = 0.0;
     for(int i = 0; i < graphs[0]->data()->size(); ++i)
         total += graphs[0]->data()->at(i)->value;
-    EXPECT_DOUBLE_EQ(total, 20.0);
+    EXPECT_DOUBLE_EQ(total, 40.0);
 }
 
 TEST_F(QtFITSviewerTest, QtHistogram_table_null_throws)
