@@ -1,14 +1,32 @@
-This software and source code are licensed under the **Creative Commons Attribution-NonCommercial 4.0** International License (**CC BY-NC 4.0**).
+deepskydisplay
+Copyright (C) 2026  William <your full name / institution>
 
-# You are free to:
-- Share -- copy and redistribute the material in any medium or format.
-- Adapt -- remix, transform, and build upon the material.
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
 
-# Under the following terms:
-- Attribution -- You must give appropriate credit to the original author, 
-  provide a link to the license, and indicate if changes were made.
-- NonCommercial -- You may not use the material for commercial purposes.
-- ShareAlike is NOT required, but this license must be included in any 
-  redistribution of the code.
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+Public License for more details. You should have received a copy of the
+GNU General Public License along with this program (see the LICENSE
+file). If not, see <https://www.gnu.org/licenses/>.
 
-Full license text: https://creativecommons.org/licenses/by-nc/4.0/
+-------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+-------------------------------------------------------------------------
+
+This software incorporates QCustomPlot, a Qt C++ plotting widget.
+
+    QCustomPlot
+    Copyright (C) Emanuel Eichhammer
+    https://www.qcustomplot.com
+
+QCustomPlot is dual-licensed by its author under the GNU GPL v3 (or
+later) and a separate commercial license. It is included here under the
+GPL. A commercial license for QCustomPlot — required to use it in a
+closed-source/proprietary product — can only be granted by its author
+and must be obtained directly from him at https://www.qcustomplot.com
+(support@qcustomplot.com). The present authors cannot grant any license
+to QCustomPlot.

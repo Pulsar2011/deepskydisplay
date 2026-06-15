@@ -98,3 +98,4 @@ doc/html
 test/gTest_version.h
 src/DSM_version.cxx
 Testing/
+cmake_test*
