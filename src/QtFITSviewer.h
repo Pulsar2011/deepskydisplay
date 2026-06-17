@@ -178,6 +178,325 @@ namespace QtFITS
     };
 }
 
+/**
+ * @class QCPColorMapRGB
+ * @brief Multi-channel colour plottable for QCustomPlot, designed for true-colour
+ *        FITS image visualisation.
+ *
+ * @details
+ * @c QCPColorMapRGB extends @c QCPAbstractPlottable to render up to four independent
+ * scalar channels (R, G, B, and optionally K) as a single composited colour image
+ * inside a QCustomPlot canvas.  It is the rendering engine behind
+ * @c QtFITSviewer::QtDisplayRGB() and @c QtFITSviewer::OverlayRGB().
+ *
+ * ### Compositing pipeline
+ *
+ * Each active channel is processed independently:
+ * -# The raw double array is passed to @c QCPColorGradient::colorize() using the
+ *    channel's own intensity range and gradient (default: single-hue black-to-colour
+ *    ramp).  This produces a @c QImage in @c Format_ARGB32_Premultiplied.
+ * -# The per-channel images are painted onto a black base image using
+ *    @c QPainter::CompositionMode_Plus (additive blending), giving correct
+ *    component-wise colour addition: e.g. red + green → yellow.
+ *
+ * In CMYK mode (enabled by @c setCMYKMode()) the four channel values are first
+ * converted pixel-by-pixel to RGB using the standard formula
+ * \f[
+ *   R = (1-C)(1-K), \quad G = (1-M)(1-K), \quad B = (1-Y)(1-K)
+ * \f]
+ * (components normalised to [0, 1]) and the result is written directly to the
+ * composed image without the gradient step.
+ *
+ * The composed @c QImage is cached in @c mComposedImage and regenerated lazily
+ * (only when @c mInvalidated is @c true).
+ *
+ * ### Data layout
+ *
+ * Pixel data supplied to @c setChannelData() must be a flat @c std::vector<double>
+ * with linear index @c idx = @c x + @c y * @c nx, where x ∈ [0, nx) and y ∈ [0, ny),
+ * with **y = 0 at the image bottom** (FITS convention).  The compositor
+ * automatically flips the y-axis when copying scan lines into the @c QImage.
+ *
+ * ### Default colour gradients
+ *
+ * | Channel | Role (RGB mode) | Default gradient |
+ * |:-------:|:----------------|:-----------------|
+ * | 0       | Red             | black → red       |
+ * | 1       | Green           | black → green     |
+ * | 2       | Blue            | black → blue      |
+ * | 3       | Key / black (CMYK) | black → white  |
+ *
+ * Gradients can be replaced at any time with @c setChannelGradient(); this allows
+ * arbitrary filter-to-colour associations (e.g. Hα → red, OIII → green, SII → blue).
+ *
+ * ### Relationship to QCP
+ *
+ * @c QCPColorMapRGB inherits @c QCPAbstractPlottable directly rather than
+ * @c QCPColorMap, because @c QCPColorMap::updateMapImage() is private and
+ * non-virtual.  The @c draw() implementation mirrors the logic of
+ * @c QCPColorMap::draw(): it computes the screen-space @c QRectF from
+ * @c coordsToPixels(), expands by half a cell, handles axis mirroring, and
+ * calls @c QPainter::drawImage().
+ *
+ * @note The class emits no signals of its own; invalidation and recomposition are
+ *       driven by the setter methods and triggered on the next @c QCustomPlot::replot().
+ *
+ * @since DSTdisplay v2.x (ColorDisplay branch)
+ * @author GILLARD William — CPPM / Aix-Marseille Université
+ *
+ * @see QtFITSviewer::QtDisplayRGB()
+ * @see QtFITSviewer::OverlayRGB()
+ */
+class QCPColorMapRGB : public QCPAbstractPlottable
+{
+    Q_OBJECT
+public:
+    /// Maximum number of channels supported (R/G/B + optional K).
+    static constexpr int kMaxChannels = 4;
+
+    /**
+     * @brief Construct a @c QCPColorMapRGB and register it with the parent plot.
+     * @details Initialises default single-hue gradients for all channels
+     *          (black→red, black→green, black→blue, black→white) and sets
+     *          every channel scale type to @c QCPAxis::stLinear.
+     *          The plottable is automatically owned and managed by the
+     *          @c QCustomPlot that owns @p keyAxis / @p valueAxis.
+     * @param keyAxis   Horizontal (key) axis; typically @c plot->xAxis.
+     * @param valueAxis Vertical (value) axis; typically @c plot->yAxis.
+     */
+    explicit QCPColorMapRGB(QCPAxis *keyAxis, QCPAxis *valueAxis);
+
+    /** @brief Destructor. */
+    ~QCPColorMapRGB() override;
+
+    /**
+     * @brief Supply raw pixel data for one channel.
+     * @details The data vector is moved into the plottable's internal storage.
+     *          Supplying data for any channel automatically sets the grid
+     *          dimensions (@p nx, @p ny) and coordinate extents for all channels;
+     *          the composed image is invalidated.
+     * @param ch          Channel index in [0, kMaxChannels).  0 = R/C, 1 = G/M,
+     *                    2 = B/Y, 3 = K.
+     * @param data        Flat pixel array, @c data.size() must equal @c nx * ny.
+     *                    Index layout: @c idx = x + y * nx, y = 0 at image bottom.
+     * @param nx          Number of columns (NAXIS1).
+     * @param ny          Number of rows    (NAXIS2).
+     * @param keyRange    Plot-coordinate range in the horizontal direction
+     *                    (usually @c QCPRange(0, nx-1)).
+     * @param valueRange  Plot-coordinate range in the vertical direction
+     *                    (usually @c QCPRange(0, ny-1)).
+     * @note  Calling this method does not trigger a recompose; call
+     *        @c QCustomPlot::replot() (or @c composedImage()) to update the
+     *        display.
+     */
+    void setChannelData(int ch, std::vector<double> data, int nx, int ny,
+                        const QCPRange &keyRange, const QCPRange &valueRange);
+
+    /**
+     * @brief Set the intensity range used for gradient mapping on one channel.
+     * @details The range is passed directly to @c QCPColorGradient::colorize():
+     *          pixel values at @c intensityRange.lower map to the start of the
+     *          gradient and values at @c intensityRange.upper map to its end.
+     *          Values outside the range are clamped.  Call this method after
+     *          @c setChannelData() and before the next @c replot().
+     * @param ch             Channel index in [0, kMaxChannels).
+     * @param intensityRange [min, max] intensity window for this channel.
+     */
+    void setChannelRange(int ch, const QCPRange &intensityRange);
+
+    /**
+     * @brief Auto-compute the intensity range from the stored data min/max.
+     * @details Scans @c mChannelRaw[ch] to find its minimum and maximum value
+     *          and updates the channel's intensity range accordingly.  This is
+     *          equivalent to calling @c setChannelRange() with the exact data
+     *          bounds and is the most common post-load operation.
+     * @param ch  Channel index in [0, kMaxChannels).
+     *            If no data has been set for this channel, the method is a no-op.
+     */
+    void rescaleChannelRange(int ch);
+
+    /**
+     * @brief Override the colour gradient used for one channel.
+     * @details By default each channel uses a single-hue gradient
+     *          (black → channel colour).  This method replaces that gradient with
+     *          any @c QCPColorGradient, enabling arbitrary filter-to-colour mappings
+     *          (e.g. associating Hα with a warm orange ramp instead of pure red).
+     * @code
+     *   QCPColorGradient orange;
+     *   orange.clearColorStops();
+     *   orange.setColorStops({{0.0, Qt::black}, {1.0, QColor(255,140,0)}});
+     *   rgbMap->setChannelGradient(0, orange);
+     *   rgbMap->invalidate();
+     *   plot->replot();
+     * @endcode
+     * @param ch        Channel index in [0, kMaxChannels).
+     * @param gradient  New colour gradient.
+     */
+    void setChannelGradient(int ch, const QCPColorGradient &gradient);
+
+    /**
+     * @brief Select linear or logarithmic gradient mapping for one channel.
+     * @details When set to @c QCPAxis::stLogarithmic the @c logarithmic flag of
+     *          @c QCPColorGradient::colorize() is set to @c true, which applies
+     *          a log10 mapping from intensity to gradient position.  Use this
+     *          for images with high dynamic range (e.g. stellar images where
+     *          the brightest source is many decades above the noise floor).
+     * @param ch    Channel index in [0, kMaxChannels).
+     * @param type  @c QCPAxis::stLinear (default) or @c QCPAxis::stLogarithmic.
+     * @note  For a coarser but simpler alternative, the @c "LOGZ" / @c "SQRTZ"
+     *        tokens in the @c OPTION string of @c OverlayRGB() / @c QtDisplayRGB()
+     *        apply the stretch to the raw data before storage, which is equivalent
+     *        to a linear mapping of the stretched values.
+     */
+    void setChannelScaleType(int ch, QCPAxis::ScaleType type);
+
+    /**
+     * @brief Set the number of active channels to composite.
+     * @details The value is clamped to [1, kMaxChannels].  Channels with an index
+     *          ≥ @p n are ignored during @c recompose().
+     *          - @c n = 1 : single-channel pseudo-colour (monochrome input)
+     *          - @c n = 2 : two-channel composite (e.g. RG)
+     *          - @c n = 3 : standard RGB (default)
+     *          - @c n = 4 : CMYK (requires @c setCMYKMode(true))
+     * @param n  Number of channels, clamped to [1, @c kMaxChannels].
+     */
+    void setChannelCount(int n);
+
+    /**
+     * @brief Enable or disable CMYK compositing mode.
+     * @details When @c enabled is @c true and @c channelCount() ≥ 4, channel values
+     *          are interpreted as cyan (ch0), magenta (ch1), yellow (ch2), and
+     *          black/key (ch3).  Each pixel is converted to RGB with
+     *          \f$ R=(1-C)(1-K),\ G=(1-M)(1-K),\ B=(1-Y)(1-K) \f$
+     *          (with all components normalised to [0, 1]).
+     *          In CMYK mode the per-channel gradients are not used.
+     * @param enabled  @c true to activate CMYK mode, @c false (default) for RGB.
+     * @see setChannelCount()
+     */
+    void setCMYKMode(bool enabled);
+
+    /**
+     * @brief Enable or disable bilinear interpolation when the image is zoomed in.
+     * @details Corresponds to the @c QPainter::SmoothPixmapTransform render hint.
+     *          When @c false (default), pixels are displayed as hard-edged squares
+     *          on zoom, which is often preferred for astronomical images so that
+     *          individual detector pixels remain identifiable.
+     * @param enabled  @c true to enable smooth interpolation.
+     */
+    void setInterpolate(bool enabled);
+
+    /**
+     * @brief Mark the cached composed image as stale.
+     * @details Forces @c recompose() to run on the next call to @c draw() or
+     *          @c composedImage().  This method must be called whenever channel
+     *          data, ranges, gradients, or the channel count are changed outside
+     *          the normal setter methods (e.g. after modifying data in-place).
+     */
+    void invalidate();
+
+    /**
+     * @brief Return the cached composed @c QImage, recomposing first if stale.
+     * @details Primarily intended for unit testing and image export.  In normal
+     *          rendering use, the composed image is accessed internally by @c draw().
+     * @return  Const reference to the internal @c QImage in
+     *          @c Format_ARGB32_Premultiplied.  The image is null if no channel
+     *          data has been supplied.
+     */
+    const QImage& composedImage();
+
+    /**
+     * @brief Hit-test: return 0.0 if @p pos is inside the image rect, -1 otherwise.
+     * @details Overrides @c QCPAbstractPlottable::selectTest().  The image rect is
+     *          derived from the current key/value coordinate ranges via
+     *          @c coordsToPixels().  Returns -1.0 if the plottable has no data.
+     * @param pos            Screen-space position to test.
+     * @param onlySelectable If @c true and the plottable is not selectable,
+     *                       always returns -1.
+     * @param details        Unused; set to @c nullptr.
+     * @return 0.0 if the position is inside the image bounding box, -1.0 otherwise.
+     */
+    double selectTest(const QPointF &pos, bool onlySelectable,
+                      QVariant *details = nullptr) const override;
+
+    /**
+     * @brief Return the key (horizontal) axis range of the pixel grid.
+     * @param foundRange     Set to @c true if data has been loaded, @c false otherwise.
+     * @param inSignDomain   Unused; present for interface compatibility.
+     * @return The @c QCPRange set by the last call to @c setChannelData().
+     */
+    QCPRange getKeyRange(bool &foundRange,
+                         QCP::SignDomain inSignDomain = QCP::sdBoth) const override;
+
+    /**
+     * @brief Return the value (vertical) axis range of the pixel grid.
+     * @param foundRange     Set to @c true if data has been loaded, @c false otherwise.
+     * @param inSignDomain   Unused; present for interface compatibility.
+     * @param inKeyRange     Unused; present for interface compatibility.
+     * @return The @c QCPRange set by the last call to @c setChannelData().
+     */
+    QCPRange getValueRange(bool &foundRange,
+                           QCP::SignDomain inSignDomain = QCP::sdBoth,
+                           const QCPRange &inKeyRange   = QCPRange()) const override;
+
+protected:
+    /**
+     * @brief Render the composed colour image onto the plot.
+     * @details Called by the QCP rendering engine during @c QCustomPlot::replot().
+     *          Recomposes the image if @c mInvalidated is @c true, then maps
+     *          the pixel grid to screen coordinates (including half-cell border
+     *          expansion and axis-reversal mirroring) and paints it with
+     *          @c QPainter::drawImage().
+     * @param painter  QCP painter provided by the rendering engine.
+     */
+    void draw(QCPPainter *painter) override;
+
+    /**
+     * @brief Draw a thumbnail of the composed image in the plot legend.
+     * @param painter  QCP painter provided by the rendering engine.
+     * @param rect     Bounding rect allocated for this legend icon.
+     */
+    void drawLegendIcon(QCPPainter *painter, const QRectF &rect) const override;
+
+private:
+    std::vector<double>  mChannelRaw[kMaxChannels];       ///< Raw pixel data per channel (x + y*mNx)
+    QCPColorGradient     mChannelGradient[kMaxChannels];  ///< Colour gradient per channel
+    QCPRange             mChannelIntRange[kMaxChannels];  ///< [min, max] intensity window per channel
+    QCPAxis::ScaleType   mChannelScaleType[kMaxChannels]; ///< Linear or logarithmic mapping per channel
+    int                  mNx           = 0;               ///< Grid width  (NAXIS1)
+    int                  mNy           = 0;               ///< Grid height (NAXIS2)
+    QCPRange             mKeyRange;                       ///< Plot-coordinate extent in x
+    QCPRange             mValueRange;                     ///< Plot-coordinate extent in y
+    int                  mChannelCount = 3;               ///< Number of active channels (1–4)
+    bool                 mCMYKMode     = false;           ///< If true, interpret ch0–3 as C/M/Y/K
+    bool                 mInterpolate  = false;           ///< Enable smooth zoom interpolation
+    bool                 mInvalidated  = true;            ///< True when mComposedImage needs rebuilding
+    QImage               mComposedImage;                  ///< Cached result of recompose()
+    QPixmap              mLegendIcon;                     ///< 16×16 thumbnail for the legend
+
+    /**
+     * @brief Rebuild @c mComposedImage from all active channel arrays.
+     * @details In RGB mode: allocates a black base image, colourises each channel
+     *          with @c QCPColorGradient::colorize() (inverting the y-axis to convert
+     *          from FITS bottom-up convention to screen top-down), and additively
+     *          blends the per-channel images onto the base using
+     *          @c QPainter::CompositionMode_Plus.
+     *          In CMYK mode: computes per-pixel CMYK→RGB conversion and writes
+     *          directly to the base image.
+     *          Sets @c mInvalidated to @c false on completion.
+     */
+    void recompose();
+
+    /**
+     * @brief Build the default single-hue gradient for channel @p ch.
+     * @details Returns a gradient from black (position 0) to the channel's
+     *          canonical colour (position 1):
+     *          ch 0 → red, ch 1 → green, ch 2 → blue, ch ≥ 3 → white.
+     * @param ch  Channel index.
+     * @return    A @c QCPColorGradient with two colour stops.
+     */
+    static QCPColorGradient makeChannelGradient(int ch);
+};
+
 // ---------------------------------------------------------------------------
 // HDU enumeration
 // ---------------------------------------------------------------------------
@@ -843,6 +1162,147 @@ public:
 
     /// @copydoc OverlayInWCS(QCustomPlot*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string)
     static void OverlayInWCS(QCPAxisRect*, const std::shared_ptr<const FITScube>&, const size_t&, const size_t&, const size_t&, std::string OPTION=std::string());
+
+    // ─── RGB / multi-channel display (QCPColorMapRGB) ───────────────────────
+
+    /**
+     * @brief Display a 3-layer FITScube as a true-colour RGB image.
+     *
+     * @details Convenience wrapper that sets axis labels, enforces a 1:1
+     *          pixel aspect ratio, and delegates to
+     *          @c OverlayRGB(QCPAxisRect*, cube, OPTION).
+     *
+     *          Layer 0 → red channel, layer 1 → green channel,
+     *          layer 2 → blue channel.  Each channel is independently
+     *          stretch-corrected and then composited with additive blending
+     *          (see @c QCPColorMapRGB).
+     *
+     * @param qPlot  Target @c QCustomPlot widget.  Its main axis rect is used.
+     * @param cube   A FITS data cube with NAXIS = 3 and at least 3 layers
+     *               (i.e. @c cube->GetDimension() >= 3 and @c cube->Size(3) >= 3).
+     * @param OPTION Case-insensitive stretch token (may be combined):
+     *               | Token   | Effect                                  |
+     *               |:--------|:----------------------------------------|
+     *               | @c logz  | log₁₀ stretch before gradient mapping  |
+     *               | @c sqrtz | square-root stretch                    |
+     *               | @c quadz | quadratic (power-2) stretch            |
+     *               | @c sinhz | hyperbolic-sine stretch                |
+     *               Default (empty string) applies a linear stretch.
+     *
+     * @throws DSL::FITSexception If @p cube has fewer than 3 dimensions or
+     *                            fewer than 3 layers.
+     * @see OverlayRGB(QCPAxisRect*, const std::shared_ptr<const FITScube>&, std::string)
+     * @see QCPColorMapRGB
+     */
+    static void QtDisplayRGB(QCustomPlot*,
+                              const std::shared_ptr<const FITScube>& cube,
+                              std::string OPTION = std::string());
+
+    /**
+     * @brief Display three separate monochromatic FITScubes as a true-colour RGB image.
+     *
+     * @details Convenience wrapper that sets axis labels, enforces a 1:1
+     *          pixel aspect ratio, and delegates to
+     *          @c OverlayRGB(QCPAxisRect*, red, green, blue, OPTION).
+     *
+     *          This overload is the standard entry point for filter-association
+     *          imaging (e.g. Hubble palette: Hα → @p red, OIII → @p green,
+     *          SII → @p blue).  The three cubes may be loaded from entirely
+     *          different FITS files; they only need to share the same pixel
+     *          dimensions (NAXIS1, NAXIS2).
+     *
+     * @param qPlot  Target @c QCustomPlot widget.  Its main axis rect is used.
+     * @param red    Monochromatic @c FITScube mapped to the red channel.
+     * @param green  Monochromatic @c FITScube mapped to the green channel.
+     * @param blue   Monochromatic @c FITScube mapped to the blue channel.
+     * @param OPTION Case-insensitive stretch token — see @c QtDisplayRGB(QCustomPlot*, cube, OPTION)
+     *               for the full token table.  The same stretch is applied to all channels.
+     *
+     * @note  All three cubes must have the same NAXIS1 and NAXIS2; the method
+     *        derives dimensions from @p red and uses them for all channels.
+     * @see OverlayRGB(QCPAxisRect*, red, green, blue, OPTION)
+     * @see QCPColorMapRGB::setChannelGradient()
+     */
+    static void QtDisplayRGB(QCustomPlot*,
+                              const std::shared_ptr<const FITScube>& red,
+                              const std::shared_ptr<const FITScube>& green,
+                              const std::shared_ptr<const FITScube>& blue,
+                              std::string OPTION = std::string());
+
+    /**
+     * @brief Overlay three monochromatic FITScubes as an RGB image on an existing
+     *        axis rect.
+     *
+     * @details Lower-level entry point used by
+     *          @c QtDisplayRGB(QCustomPlot*, red, green, blue, OPTION).
+     *          No axis labels, title, or aspect-ratio lock are applied; the caller
+     *          is responsible for any additional axis setup.
+     *
+     *          The method:
+     *          -# Parses @p OPTION to determine the per-pixel stretch function.
+     *          -# Fills one @c std::vector<double> per channel by iterating
+     *             all unmasked pixels of the respective @c FITScube and applying
+     *             the chosen stretch.
+     *          -# Constructs a @c QCPColorMapRGB on @p qPlot's axes, loads the
+     *             three channel arrays, and auto-scales each channel's intensity
+     *             range.
+     *          -# Schedules a thread-safe @c QCustomPlot::replot() via
+     *             @c QMetaObject::invokeMethod().
+     *
+     *          The returned @c QCPColorMapRGB is owned by the parent plot;
+     *          its per-channel gradients can be customised after this call
+     *          (call @c QCPColorMapRGB::invalidate() and @c replot() afterwards):
+     * @code
+     *   QtFITSviewer::OverlayRGB(rect, ha, oiii, sii);
+     *   auto* rgb = dynamic_cast<QCPColorMapRGB*>(plot->plottable(0));
+     *   QCPColorGradient warmOrange;
+     *   warmOrange.setColorStops({{0.0, Qt::black}, {1.0, QColor(255,140,0)}});
+     *   rgb->setChannelGradient(0, warmOrange);  // Hα in orange instead of red
+     *   rgb->invalidate();
+     *   plot->replot();
+     * @endcode
+     *
+     * @param qPlot  Target @c QCPAxisRect (must already be part of a live @c QCustomPlot).
+     * @param red    FITScube mapped to the red   channel (ch 0).
+     * @param green  FITScube mapped to the green channel (ch 1).
+     * @param blue   FITScube mapped to the blue  channel (ch 2).
+     * @param OPTION Case-insensitive stretch token — see @c QtDisplayRGB() for the
+     *               full token table.
+     *
+     * @note  Masked pixels (returned @c true by @c FITScube::GetMask()) are skipped
+     *        and left at their default value of 0 in the output array.
+     * @see QCPColorMapRGB
+     * @see QtDisplayRGB(QCustomPlot*, red, green, blue, OPTION)
+     */
+    static void OverlayRGB(QCPAxisRect*,
+                            const std::shared_ptr<const FITScube>& red,
+                            const std::shared_ptr<const FITScube>& green,
+                            const std::shared_ptr<const FITScube>& blue,
+                            std::string OPTION = std::string());
+
+    /**
+     * @brief Overlay a 3-layer FITScube as an RGB image on an existing axis rect.
+     *
+     * @details Convenience overload of
+     *          @c OverlayRGB(QCPAxisRect*, red, green, blue, OPTION) that accepts
+     *          a single 3-D FITS data cube.  Layer 0 → red (ch 0), layer 1 → green
+     *          (ch 1), layer 2 → blue (ch 2).  Pixel ranges are extracted as
+     *          contiguous slices of the flat data array
+     *          ([0, nx·ny), [nx·ny, 2·nx·ny), [2·nx·ny, 3·nx·ny)).
+     *
+     * @param qPlot  Target @c QCPAxisRect.
+     * @param cube   A FITS data cube with NAXIS = 3 and at least 3 layers
+     *               (@c cube->GetDimension() >= 3 and @c cube->Size(3) >= 3).
+     * @param OPTION Case-insensitive stretch token — see @c QtDisplayRGB() for the
+     *               full token table.
+     *
+     * @throws DSL::FITSexception (@c BAD_DIMEN) if @p cube has fewer than 3
+     *         dimensions or fewer than 3 layers.
+     * @see OverlayRGB(QCPAxisRect*, red, green, blue, OPTION)
+     */
+    static void OverlayRGB(QCPAxisRect*,
+                            const std::shared_ptr<const FITScube>& cube,
+                            std::string OPTION = std::string());
 
     /**
      * @brief Compute and plot a pixel histogram for a full FITS image.

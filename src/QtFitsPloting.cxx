@@ -2428,4 +2428,422 @@ std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(
     return g;
 }
 
+// ===========================================================================
+// QCPColorMapRGB — implementation
+// ===========================================================================
+
+QCPColorGradient QCPColorMapRGB::makeChannelGradient(int ch)
+{
+    QCPColorGradient g;
+    g.clearColorStops();
+    switch(ch)
+    {
+        case 0:  g.setColorStops({{0.0, QColor(0,0,0)},   {1.0, QColor(255,0,0)}});   break; // red
+        case 1:  g.setColorStops({{0.0, QColor(0,0,0)},   {1.0, QColor(0,255,0)}});   break; // green
+        case 2:  g.setColorStops({{0.0, QColor(0,0,0)},   {1.0, QColor(0,0,255)}});   break; // blue
+        default: g.setColorStops({{0.0, QColor(0,0,0)},   {1.0, QColor(255,255,255)}});break; // white (K)
+    }
+    return g;
+}
+
+QCPColorMapRGB::QCPColorMapRGB(QCPAxis *keyAxis, QCPAxis *valueAxis)
+    : QCPAbstractPlottable(keyAxis, valueAxis)
+{
+    for(int ch = 0; ch < kMaxChannels; ++ch)
+    {
+        mChannelGradient[ch]  = makeChannelGradient(ch);
+        mChannelIntRange[ch]  = QCPRange(0.0, 1.0);
+        mChannelScaleType[ch] = QCPAxis::stLinear;
+    }
+}
+
+QCPColorMapRGB::~QCPColorMapRGB() = default;
+
+void QCPColorMapRGB::setChannelData(int ch, std::vector<double> data,
+                                    int nx, int ny,
+                                    const QCPRange &keyRange,
+                                    const QCPRange &valueRange)
+{
+    if(ch < 0 || ch >= kMaxChannels) return;
+    mChannelRaw[ch] = std::move(data);
+    mNx = nx;
+    mNy = ny;
+    mKeyRange   = keyRange;
+    mValueRange = valueRange;
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::setChannelRange(int ch, const QCPRange &intensityRange)
+{
+    if(ch < 0 || ch >= kMaxChannels) return;
+    mChannelIntRange[ch] = intensityRange;
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::rescaleChannelRange(int ch)
+{
+    if(ch < 0 || ch >= kMaxChannels) return;
+    if(mChannelRaw[ch].empty()) return;
+    const auto [mn, mx] = std::minmax_element(mChannelRaw[ch].begin(), mChannelRaw[ch].end());
+    mChannelIntRange[ch] = QCPRange(*mn, *mx);
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::setChannelGradient(int ch, const QCPColorGradient &gradient)
+{
+    if(ch < 0 || ch >= kMaxChannels) return;
+    mChannelGradient[ch] = gradient;
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::setChannelScaleType(int ch, QCPAxis::ScaleType type)
+{
+    if(ch < 0 || ch >= kMaxChannels) return;
+    mChannelScaleType[ch] = type;
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::setChannelCount(int n)
+{
+    mChannelCount = std::max(1, std::min(n, kMaxChannels));
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::setCMYKMode(bool enabled)
+{
+    mCMYKMode    = enabled;
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::setInterpolate(bool enabled)
+{
+    mInterpolate = enabled;
+    mInvalidated = true;
+}
+
+void QCPColorMapRGB::invalidate()
+{
+    mInvalidated = true;
+}
+
+const QImage& QCPColorMapRGB::composedImage()
+{
+    if(mInvalidated) recompose();
+    return mComposedImage;
+}
+
+double QCPColorMapRGB::selectTest(const QPointF &pos, bool onlySelectable,
+                                   QVariant *details) const
+{
+    Q_UNUSED(details)
+    if(onlySelectable && !mSelectable) return -1;
+    if(mNx <= 0 || mNy <= 0) return -1;
+    const QRectF rect = QRectF(coordsToPixels(mKeyRange.lower, mValueRange.lower),
+                               coordsToPixels(mKeyRange.upper, mValueRange.upper)).normalized();
+    return rect.contains(pos) ? 0.0 : -1.0;
+}
+
+QCPRange QCPColorMapRGB::getKeyRange(bool &foundRange, QCP::SignDomain inSignDomain) const
+{
+    Q_UNUSED(inSignDomain)
+    foundRange = (mNx > 0);
+    return mKeyRange;
+}
+
+QCPRange QCPColorMapRGB::getValueRange(bool &foundRange, QCP::SignDomain inSignDomain,
+                                        const QCPRange &inKeyRange) const
+{
+    Q_UNUSED(inSignDomain)
+    Q_UNUSED(inKeyRange)
+    foundRange = (mNy > 0);
+    return mValueRange;
+}
+
+void QCPColorMapRGB::recompose()
+{
+    if(mNx <= 0 || mNy <= 0) { mInvalidated = false; return; }
+
+    QImage base(mNx, mNy, QImage::Format_ARGB32_Premultiplied);
+    base.fill(qRgba(0, 0, 0, 255));
+
+    if(mCMYKMode && mChannelCount >= 4)
+    {
+        // CMYK → RGB per pixel; no gradient used
+        for(int y = 0; y < mNy; ++y)
+        {
+            QRgb *row = reinterpret_cast<QRgb*>(base.scanLine(mNy - 1 - y));
+            for(int x = 0; x < mNx; ++x)
+            {
+                const size_t idx = static_cast<size_t>(x + y * mNx);
+                auto norm = [&](int ch) -> double {
+                    if(static_cast<int>(mChannelRaw[ch].size()) <= static_cast<int>(idx)) return 0.0;
+                    const double rng = mChannelIntRange[ch].size();
+                    if(rng <= 0.0) return 0.0;
+                    return std::max(0.0, std::min(1.0,
+                        (mChannelRaw[ch][idx] - mChannelIntRange[ch].lower) / rng));
+                };
+                const double C = norm(0), M = norm(1), Y = norm(2), K = norm(3);
+                row[x] = qRgb(
+                    std::max(0, std::min(255, static_cast<int>((1.0-C)*(1.0-K)*255.0 + 0.5))),
+                    std::max(0, std::min(255, static_cast<int>((1.0-M)*(1.0-K)*255.0 + 0.5))),
+                    std::max(0, std::min(255, static_cast<int>((1.0-Y)*(1.0-K)*255.0 + 0.5)))
+                );
+            }
+        }
+    }
+    else
+    {
+        // RGB: colorize each channel separately, then additively blend
+        QPainter painter(&base);
+        painter.setCompositionMode(QPainter::CompositionMode_Plus);
+
+        const int nCh = std::min(mChannelCount, 3);
+        for(int ch = 0; ch < nCh; ++ch)
+        {
+            if(mChannelRaw[ch].empty()) continue;
+
+            QImage chImg(mNx, mNy, QImage::Format_ARGB32_Premultiplied);
+            chImg.fill(qRgba(0, 0, 0, 255));
+
+            const bool isLog = (mChannelScaleType[ch] == QCPAxis::stLogarithmic);
+            for(int line = 0; line < mNy; ++line)
+            {
+                QRgb *pixels = reinterpret_cast<QRgb*>(chImg.scanLine(mNy - 1 - line));
+                mChannelGradient[ch].colorize(
+                    mChannelRaw[ch].data() + static_cast<size_t>(line) * static_cast<size_t>(mNx),
+                    mChannelIntRange[ch],
+                    pixels,
+                    mNx,
+                    1,
+                    isLog
+                );
+            }
+            painter.drawImage(0, 0, chImg);
+        }
+    }
+
+    mComposedImage = base;
+    mLegendIcon    = QPixmap::fromImage(base.scaled(16, 16, Qt::IgnoreAspectRatio,
+                                                    Qt::FastTransformation));
+    mInvalidated   = false;
+}
+
+void QCPColorMapRGB::draw(QCPPainter *painter)
+{
+    if(mNx <= 0 || mNy <= 0) return;
+    if(!mKeyAxis || !mValueAxis) return;
+    applyDefaultAntialiasingHint(painter);
+
+    if(mInvalidated) recompose();
+    if(mComposedImage.isNull()) return;
+
+    QRectF imageRect = QRectF(
+        coordsToPixels(mKeyRange.lower,  mValueRange.lower),
+        coordsToPixels(mKeyRange.upper,  mValueRange.upper)
+    ).normalized();
+
+    // Expand by half a cell so pixels are centred on their coordinate (matches QCPColorMap)
+    double halfCellW = 0.0, halfCellH = 0.0;
+    if(keyAxis()->orientation() == Qt::Horizontal)
+    {
+        if(mNx > 1) halfCellW = 0.5 * imageRect.width()  / double(mNx - 1);
+        if(mNy > 1) halfCellH = 0.5 * imageRect.height() / double(mNy - 1);
+    }
+    else
+    {
+        if(mNx > 1) halfCellH = 0.5 * imageRect.height() / double(mNx - 1);
+        if(mNy > 1) halfCellW = 0.5 * imageRect.width()  / double(mNy - 1);
+    }
+    imageRect.adjust(-halfCellW, -halfCellH, halfCellW, halfCellH);
+
+    const bool mirrorX = (keyAxis()->orientation() == Qt::Horizontal
+                          ? keyAxis() : valueAxis())->rangeReversed();
+    const bool mirrorY = (valueAxis()->orientation() == Qt::Vertical
+                          ? valueAxis() : keyAxis())->rangeReversed();
+
+    const bool smoothBackup = painter->renderHints().testFlag(QPainter::SmoothPixmapTransform);
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, mInterpolate);
+    painter->drawImage(imageRect, mComposedImage.mirrored(mirrorX, mirrorY));
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, smoothBackup);
+}
+
+void QCPColorMapRGB::drawLegendIcon(QCPPainter *painter, const QRectF &rect) const
+{
+    applyDefaultAntialiasingHint(painter);
+    if(!mLegendIcon.isNull())
+    {
+        QPixmap scaled = mLegendIcon.scaled(rect.size().toSize(),
+                                            Qt::IgnoreAspectRatio,
+                                            Qt::FastTransformation);
+        QRectF iconRect(0, 0, scaled.width(), scaled.height());
+        iconRect.moveCenter(rect.center());
+        painter->drawPixmap(iconRect.topLeft(), scaled);
+    }
+}
+
+// ===========================================================================
+// OverlayRGB / QtDisplayRGB — FITS→QCPColorMapRGB pipeline
+// ===========================================================================
+
+// Internal helper: fill one channel of a QCPColorMapRGB from a 2-D FITScube.
+// iMin / iMax select the pixel range within img (for 3-D cubes, pass the layer slice).
+static void _fillRGBChannel(QCPColorMapRGB *rgbMap, int ch,
+                             const std::shared_ptr<const FITScube> &img,
+                             size_t iMin, size_t iMax,
+                             QtFITS::zScale scale, int nx, int ny,
+                             const QCPRange &keyRange, const QCPRange &valueRange)
+{
+    std::vector<double> raw(static_cast<size_t>(nx) * static_cast<size_t>(ny), 0.0);
+    const std::valarray<bool> mask = img->GetMask();
+
+    double dataMin =  std::numeric_limits<double>::max();
+    double dataMax = -std::numeric_limits<double>::max();
+
+    for(size_t ik = iMin; ik < iMax; ++ik)
+    {
+        if(mask[ik]) continue;
+        double v = img->at(ik);
+        switch(scale)
+        {
+            case QtFITS::fLOG:  v = (v > 0.0) ? std::log10(v) : 0.0; break;
+            case QtFITS::fQUAD: v = std::pow(v, 2.0);                  break;
+            case QtFITS::fSQRT: v = (v >= 0.0) ? std::sqrt(v) : 0.0;  break;
+            case QtFITS::fSINH: v = std::sinh(v);                      break;
+            default: break;
+        }
+        const auto coords = img->PixelCoordinates(ik);
+        const size_t idx  = static_cast<size_t>(coords[0])
+                          + static_cast<size_t>(coords[1]) * static_cast<size_t>(nx);
+        raw[idx] = v;
+        dataMin  = std::min(dataMin, v);
+        dataMax  = std::max(dataMax, v);
+    }
+
+    rgbMap->setChannelData(ch, std::move(raw), nx, ny, keyRange, valueRange);
+    if(dataMin < dataMax)
+        rgbMap->setChannelRange(ch, QCPRange(dataMin, dataMax));
+    else
+        rgbMap->setChannelRange(ch, QCPRange(dataMin, dataMin + 1.0));
+}
+
+void QtFITSviewer::OverlayRGB(QCPAxisRect *qPlot,
+                               const std::shared_ptr<const FITScube> &red,
+                               const std::shared_ptr<const FITScube> &green,
+                               const std::shared_ptr<const FITScube> &blue,
+                               std::string OPTION)
+{
+    std::transform(OPTION.begin(), OPTION.end(), OPTION.begin(), ::tolower);
+
+    QtFITS::zScale scale = QtFITS::fLIN;
+    if     (OPTION.find("logz",0)  != std::string::npos) scale = QtFITS::fLOG;
+    else if(OPTION.find("sinhz",0) != std::string::npos) scale = QtFITS::fSINH;
+    else if(OPTION.find("quadz",0) != std::string::npos) scale = QtFITS::fQUAD;
+    else if(OPTION.find("sqrtz",0) != std::string::npos) scale = QtFITS::fSQRT;
+
+    // All channels must agree on spatial dimensions
+    const int nx = static_cast<int>(red->Size(1));
+    const int ny = static_cast<int>(red->Size(2));
+    const QCPRange keyRange  (0, nx - 1);
+    const QCPRange valueRange(0, ny - 1);
+
+    QCPColorMapRGB *rgbMap = new QCPColorMapRGB(
+        qPlot->axis(QCPAxis::atBottom),
+        qPlot->axis(QCPAxis::atLeft));
+
+    const std::shared_ptr<const FITScube>* cubes[3] = { &red, &green, &blue };
+    for(int ch = 0; ch < 3; ++ch)
+        _fillRGBChannel(rgbMap, ch, *cubes[ch],
+                        0, (*cubes[ch])->Nelements(),
+                        scale, nx, ny, keyRange, valueRange);
+
+    QMetaObject::invokeMethod(qPlot->parentPlot(), [qPlot]() mutable
+    {
+        {
+            std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+            qPlot->parentPlot()->rescaleAxes();
+            qPlot->parentPlot()->yAxis->setScaleRatio(qPlot->parentPlot()->xAxis, 1.0);
+            qPlot->parentPlot()->replot();
+        }
+        {
+            std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+            if(!QtFITS::finished) QtFITS::finished |= true;
+            QtFITS::msg_cv.notify_one();
+            QtFITS::finished &= false;
+        }
+    });
+}
+
+void QtFITSviewer::OverlayRGB(QCPAxisRect *qPlot,
+                               const std::shared_ptr<const FITScube> &cube,
+                               std::string OPTION)
+{
+    if(cube->GetDimension() < 3 || cube->Size(3) < 3)
+        throw FITSexception(BAD_DIMEN, "QtFITSviewer", "OverlayRGB",
+            "Input cube must have NAXIS=3 and at least 3 layers (Naxis[2]>=3).");
+
+    std::transform(OPTION.begin(), OPTION.end(), OPTION.begin(), ::tolower);
+
+    QtFITS::zScale scale = QtFITS::fLIN;
+    if     (OPTION.find("logz",0)  != std::string::npos) scale = QtFITS::fLOG;
+    else if(OPTION.find("sinhz",0) != std::string::npos) scale = QtFITS::fSINH;
+    else if(OPTION.find("quadz",0) != std::string::npos) scale = QtFITS::fQUAD;
+    else if(OPTION.find("sqrtz",0) != std::string::npos) scale = QtFITS::fSQRT;
+
+    const int nx = static_cast<int>(cube->Size(1));
+    const int ny = static_cast<int>(cube->Size(2));
+    const QCPRange keyRange  (0, nx - 1);
+    const QCPRange valueRange(0, ny - 1);
+    const size_t layerStride = static_cast<size_t>(nx) * static_cast<size_t>(ny);
+
+    QCPColorMapRGB *rgbMap = new QCPColorMapRGB(
+        qPlot->axis(QCPAxis::atBottom),
+        qPlot->axis(QCPAxis::atLeft));
+
+    for(int ch = 0; ch < 3; ++ch)
+    {
+        const size_t iMin = static_cast<size_t>(ch) * layerStride;
+        const size_t iMax = iMin + layerStride;
+        _fillRGBChannel(rgbMap, ch, cube, iMin, iMax,
+                        scale, nx, ny, keyRange, valueRange);
+    }
+
+    QMetaObject::invokeMethod(qPlot->parentPlot(), [qPlot]() mutable
+    {
+        {
+            std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+            qPlot->parentPlot()->rescaleAxes();
+            qPlot->parentPlot()->yAxis->setScaleRatio(qPlot->parentPlot()->xAxis, 1.0);
+            qPlot->parentPlot()->replot();
+        }
+        {
+            std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+            if(!QtFITS::finished) QtFITS::finished |= true;
+            QtFITS::msg_cv.notify_one();
+            QtFITS::finished &= false;
+        }
+    });
+}
+
+void QtFITSviewer::QtDisplayRGB(QCustomPlot *qPlot,
+                                  const std::shared_ptr<const FITScube> &red,
+                                  const std::shared_ptr<const FITScube> &green,
+                                  const std::shared_ptr<const FITScube> &blue,
+                                  std::string OPTION)
+{
+    qPlot->yAxis->setScaleRatio(qPlot->xAxis, 1.0);
+    qPlot->xAxis->setLabel("pixel [px]");
+    qPlot->yAxis->setLabel("pixel [px]");
+    OverlayRGB(qPlot->axisRect(), red, green, blue, OPTION);
+}
+
+void QtFITSviewer::QtDisplayRGB(QCustomPlot *qPlot,
+                                  const std::shared_ptr<const FITScube> &cube,
+                                  std::string OPTION)
+{
+    qPlot->yAxis->setScaleRatio(qPlot->xAxis, 1.0);
+    qPlot->xAxis->setLabel("pixel [px]");
+    qPlot->yAxis->setLabel("pixel [px]");
+    OverlayRGB(qPlot->axisRect(), cube, OPTION);
+}
+
 // namespace DSL
