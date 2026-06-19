@@ -16,6 +16,9 @@
 #include <QHBoxLayout>
 #include <QCloseEvent>
 #include <QApplication>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
 
 #include <iostream>
 
@@ -219,6 +222,14 @@ HduListWindow::HduListWindow(const std::string& fitsPath,
                     emit hduActivated(m_hdus[static_cast<size_t>(row)].index);
             });
     connect(this, &HduListWindow::hduActivated, this, &HduListWindow::openViewer);
+
+    // Menu bar: a "Color" menu lets the user opt-in to a colour composite.
+    // The window itself does no compositing — it only emits colorComposeRequested();
+    // the host application wires that signal to its compose dialog.
+    QMenu* colorMenu = menuBar()->addMenu(tr("Color"));
+    QAction* composeAct = colorMenu->addAction(tr("Compose color image\xe2\x80\xa6"));
+    connect(composeAct, &QAction::triggered,
+            this, [this]() { emit colorComposeRequested(); });
 
     setCentralWidget(m_table);
     resize(520, 300);

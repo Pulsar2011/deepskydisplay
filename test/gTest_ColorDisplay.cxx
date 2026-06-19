@@ -485,6 +485,69 @@ TEST_F(ColorDisplayTest, MultipleCalls_SamePlot_AddsMultiplePlottables)
 }
 
 // ===========================================================================
+// Group 2b — OverlayChannels (generic returning builder)
+// ===========================================================================
+
+TEST_F(ColorDisplayTest, OverlayChannels_RGB_ReturnsPlottable)
+{
+    const size_t nx = 7, ny = 5;
+    std::vector<std::shared_ptr<const FITScube>> channels = {
+        makeFloatImg(nx, ny, 1.0f),
+        makeFloatImg(nx, ny, 0.5f),
+        makeFloatImg(nx, ny, 0.2f),
+    };
+
+    QCPColorMapRGB* rgb = QtFITSviewer::OverlayChannels(plot->axisRect(), channels, false);
+    ASSERT_NE(rgb, nullptr) << "OverlayChannels must return the created plottable";
+    EXPECT_EQ(plot->plottableCount(), 1);
+    EXPECT_EQ(firstRGBMap(plot), rgb);
+
+    bool kFound = false, vFound = false;
+    QCPRange kr = rgb->getKeyRange(kFound);
+    QCPRange vr = rgb->getValueRange(vFound);
+    EXPECT_TRUE(kFound);
+    EXPECT_TRUE(vFound);
+    EXPECT_DOUBLE_EQ(kr.upper, static_cast<double>(nx - 1));
+    EXPECT_DOUBLE_EQ(vr.upper, static_cast<double>(ny - 1));
+}
+
+TEST_F(ColorDisplayTest, OverlayChannels_Empty_ReturnsNull)
+{
+    std::vector<std::shared_ptr<const FITScube>> none;
+    EXPECT_EQ(QtFITSviewer::OverlayChannels(plot->axisRect(), none, false), nullptr);
+    EXPECT_EQ(plot->plottableCount(), 0);
+}
+
+TEST_F(ColorDisplayTest, OverlayChannels_CMYK_FourChannels_Composes)
+{
+    const size_t nx = 6, ny = 4;
+    // C=0,M=0,Y=0,K=0 → white everywhere
+    std::vector<std::shared_ptr<const FITScube>> channels = {
+        makeFloatImg(nx, ny, 0.0f),
+        makeFloatImg(nx, ny, 0.0f),
+        makeFloatImg(nx, ny, 0.0f),
+        makeFloatImg(nx, ny, 0.0f),
+    };
+
+    QCPColorMapRGB* rgb = QtFITSviewer::OverlayChannels(plot->axisRect(), channels, true);
+    ASSERT_NE(rgb, nullptr);
+
+    // Force the channel ranges so normalisation is well-defined, then compose.
+    for (int ch = 0; ch < 4; ++ch)
+        rgb->setChannelRange(ch, QCPRange(0.0, 1.0));
+    rgb->invalidate();
+
+    const QImage& img = rgb->composedImage();
+    ASSERT_FALSE(img.isNull());
+    EXPECT_EQ(img.width(),  static_cast<int>(nx));
+    EXPECT_EQ(img.height(), static_cast<int>(ny));
+    QColor c(img.pixel(0, 0));
+    EXPECT_GT(c.red(),   200) << "CMYK(0,0,0,0) must be white";
+    EXPECT_GT(c.green(), 200);
+    EXPECT_GT(c.blue(),  200);
+}
+
+// ===========================================================================
 // Group 3 — DISABLED visual tests (PNG output, skipped by CI)
 //
 // Run locally with:

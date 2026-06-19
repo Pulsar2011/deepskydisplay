@@ -107,6 +107,7 @@ namespace QtFITS
  * | @c QtFITSviewer::QtDisplayRGB(plot, r, g, b)   | Three separate FITS files, sets up the full plot |
  * | @c QtFITSviewer::OverlayRGB(rect, cube)         | Single cube, lower-level (no axis setup) |
  * | @c QtFITSviewer::OverlayRGB(rect, r, g, b)     | Three cubes, lower-level (no axis setup) |
+ * | @c QtFITSviewer::OverlayChannels(rect, channels, cmyk) | 2–4 channels (RGB or CMYK); returns the QCPColorMapRGB for live control |
  *
  * ### OPTION string tokens
  *
