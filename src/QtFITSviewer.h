@@ -535,6 +535,7 @@ public:
 
 signals:
     void hduActivated(int index);   ///< 1-based; emitted on double-click or Enter
+    void colorComposeRequested();   ///< Emitted when the user picks "Color ▸ Compose color image…"
 
 public slots:
     void openViewer(int index);     ///< Creates and shows the correct viewer for HDU N
@@ -1302,6 +1303,45 @@ public:
      */
     static void OverlayRGB(QCPAxisRect*,
                             const std::shared_ptr<const FITScube>& cube,
+                            std::string OPTION = std::string());
+
+    /**
+     * @brief Overlay an arbitrary set of FITScube channels as a colour image and
+     *        return the resulting plottable.
+     *
+     * @details Generic, returning counterpart to @c OverlayRGB.  It builds a
+     *          @c QCPColorMapRGB from a vector of monochromatic channel cubes and
+     *          hands the pointer back to the caller, so per-channel intensity
+     *          ranges, scale types, and gradients can be adjusted live afterwards
+     *          (e.g. by an interactive viewer).
+     *
+     *          The number of channels selects the colour model:
+     *          - 2 or 3 channels → additive RGB compositing (ch 0 = red,
+     *            1 = green, 2 = blue);
+     *          - 4 channels with @p cmyk = @c true → CMYK compositing
+     *            (ch 0 = cyan, 1 = magenta, 2 = yellow, 3 = key/black).
+     *
+     *          All channels must share the same NAXIS1/NAXIS2.  Each channel is
+     *          filled from its cube (applying the @p OPTION stretch) and its
+     *          intensity range is auto-scaled from the data.  A thread-safe
+     *          @c replot() is scheduled exactly as in @c OverlayRGB.
+     *
+     * @param qPlot    Target @c QCPAxisRect (must belong to a live @c QCustomPlot).
+     * @param channels 2–4 monochromatic FITScubes, one per channel.
+     * @param cmyk     If @c true (requires 4 channels), composite in CMYK; else RGB.
+     * @param OPTION   Case-insensitive stretch token — see @c QtDisplayRGB() for the
+     *                 full table.  The same stretch is applied to all channels.
+     * @return The newly created @c QCPColorMapRGB (owned by the parent plot), or
+     *         @c nullptr if @p channels is empty.
+     *
+     * @note  In CMYK mode the per-channel gradients are ignored (see
+     *        @c QCPColorMapRGB::setCMYKMode()); custom gradients apply in RGB mode only.
+     * @see QCPColorMapRGB
+     * @see OverlayRGB(QCPAxisRect*, red, green, blue, OPTION)
+     */
+    static QCPColorMapRGB* OverlayChannels(QCPAxisRect*,
+                            const std::vector<std::shared_ptr<const FITScube>>& channels,
+                            bool cmyk = false,
                             std::string OPTION = std::string());
 
     /**

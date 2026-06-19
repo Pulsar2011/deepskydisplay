@@ -2824,6 +2824,61 @@ void QtFITSviewer::OverlayRGB(QCPAxisRect *qPlot,
     });
 }
 
+QCPColorMapRGB* QtFITSviewer::OverlayChannels(QCPAxisRect *qPlot,
+                               const std::vector<std::shared_ptr<const FITScube>> &channels,
+                               bool cmyk,
+                               std::string OPTION)
+{
+    if(channels.empty()) return nullptr;
+
+    const int nChannels = std::min(static_cast<int>(channels.size()),
+                                   QCPColorMapRGB::kMaxChannels);
+
+    std::transform(OPTION.begin(), OPTION.end(), OPTION.begin(), ::tolower);
+
+    QtFITS::zScale scale = QtFITS::fLIN;
+    if     (OPTION.find("logz",0)  != std::string::npos) scale = QtFITS::fLOG;
+    else if(OPTION.find("sinhz",0) != std::string::npos) scale = QtFITS::fSINH;
+    else if(OPTION.find("quadz",0) != std::string::npos) scale = QtFITS::fQUAD;
+    else if(OPTION.find("sqrtz",0) != std::string::npos) scale = QtFITS::fSQRT;
+
+    // All channels must agree on spatial dimensions; derive them from channel 0.
+    const int nx = static_cast<int>(channels[0]->Size(1));
+    const int ny = static_cast<int>(channels[0]->Size(2));
+    const QCPRange keyRange  (0, nx - 1);
+    const QCPRange valueRange(0, ny - 1);
+
+    QCPColorMapRGB *rgbMap = new QCPColorMapRGB(
+        qPlot->axis(QCPAxis::atBottom),
+        qPlot->axis(QCPAxis::atLeft));
+
+    rgbMap->setChannelCount(nChannels);
+    rgbMap->setCMYKMode(cmyk && nChannels >= 4);
+
+    for(int ch = 0; ch < nChannels; ++ch)
+        _fillRGBChannel(rgbMap, ch, channels[ch],
+                        0, channels[ch]->Nelements(),
+                        scale, nx, ny, keyRange, valueRange);
+
+    QMetaObject::invokeMethod(qPlot->parentPlot(), [qPlot]() mutable
+    {
+        {
+            std::lock_guard<std::mutex> lk(QtFITS::io_mutex);
+            qPlot->parentPlot()->rescaleAxes();
+            qPlot->parentPlot()->yAxis->setScaleRatio(qPlot->parentPlot()->xAxis, 1.0);
+            qPlot->parentPlot()->replot();
+        }
+        {
+            std::lock_guard<std::mutex> dk(QtFITS::msg_m);
+            if(!QtFITS::finished) QtFITS::finished |= true;
+            QtFITS::msg_cv.notify_one();
+            QtFITS::finished &= false;
+        }
+    });
+
+    return rgbMap;
+}
+
 void QtFITSviewer::QtDisplayRGB(QCustomPlot *qPlot,
                                   const std::shared_ptr<const FITScube> &red,
                                   const std::shared_ptr<const FITScube> &green,
