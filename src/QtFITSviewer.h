@@ -779,12 +779,15 @@ protected:
      * @param nBins  Number of bins (0 = auto via Sturges rule).
      * @param logFlag Bitmask controlling logarithmic scaling.
      * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @param range  Optional {min, max} the bins span instead of those of @p data,
+     *               for histograms that must share their bin edges.
      * @return Non-owning @c shared_ptr to the new @c QCPGraph.
      */
     static std::shared_ptr<QCPGraph> _QtHistogramCore(
         QCustomPlot* qPlot,
         std::vector<double> data, size_t nBins,
-        uint8_t logFlag, const std::string& OPTION);
+        uint8_t logFlag, const std::string& OPTION,
+        const std::pair<double,double>* range = nullptr);
 
     // -----------------------------------------------------------------------
     // Template data-collection helpers (iterate FITStable rows into double vectors)
@@ -1683,6 +1686,30 @@ public:
         uint8_t logFlag = 0);
 
     /**
+     * @brief Plot a 2-D density map from a row-filtered complex or 2-vector column.
+     * @details Same as the single-column overload but only the rows identified by
+     *          @p rows are included.
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param col    Complex column (real → x, imag → y) or 2-element vector column
+     *               (elem[0] → x, elem[1] → y).
+     * @param rows   Row selector.
+     * @param nBinsX Number of bins along the x axis (default 100).
+     * @param nBinsY Number of bins along the y axis (default 100).
+     * @param logFlag Bitmask: @c 0x1 = log₁₀(x), @c 0x2 = log₁₀(y),
+     *               @c 0x4 = log₁₀ applied to bin counts.
+     * @return Non-owning @c shared_ptr to the new @c QCPColorMap (owned by Qt).
+     * @throws FITSexception (BAD_TFORM_DTYPE) if @p col is neither complex nor a 2-vector.
+     */
+    static std::shared_ptr<QCPColorMap> QtDensityPlot(
+        QCustomPlot* qPlot,
+        const std::shared_ptr<const FITStable>& tab,
+        const std::string& col,
+        const RowSet& rows,
+        size_t nBinsX = 100, size_t nBinsY = 100,
+        uint8_t logFlag = 0);
+
+    /**
      * @brief Plot a 2-D density map from a pair of @c ColumnHandle objects.
      * @details Column types are dispatched at runtime; all numeric types are
      *          supported. Use this overload when the column type is not known
@@ -1830,12 +1857,13 @@ public:
         std::string OPTION = std::string());
 
     /**
-     * @brief Histogram a scalar FITStable column, restricted to a row subset.
+     * @brief Histogram a FITStable column, restricted to a row subset.
      * @details Only the rows identified by @p rows are included. A
      *          @c RowSetBuilder<T> converts implicitly to @c RowSet.
+     *          Vector and complex columns are flattened, as in the unfiltered overload.
      * @param qPlot  Target plot widget.
      * @param tab    Source table.
-     * @param col    Scalar column name to histogram.
+     * @param col    Column name to histogram.
      * @param rows   Row selector.
      * @param nBins  Number of bins (0 = auto via Sturges rule).
      * @param OPTION Style option string forwarded to @c applyPlotOptions.
@@ -1846,6 +1874,28 @@ public:
         const std::shared_ptr<const FITStable>& tab,
         const std::string& col,
         const RowSet& rows,
+        size_t nBins = 0,
+        std::string OPTION = std::string());
+
+    /**
+     * @brief Histogram a FITStable column once per group of rows, on common bins.
+     * @details All graphs share the same bin edges, spanning the finite values of
+     *          all groups, so their counts compare bin by bin. With @p nBins = 0 the
+     *          Sturges rule applies to the total number of values.
+     * @param qPlot  Target plot widget.
+     * @param tab    Source table.
+     * @param col    Column name to histogram.
+     * @param groups Row selectors, one per histogram; none may be empty.
+     * @param nBins  Number of bins (0 = auto via Sturges rule).
+     * @param OPTION Style option string forwarded to @c applyPlotOptions.
+     * @return One @c QCPGraph per group, in the same order.
+     * @throws FITSexception (BAD_ELEM_NUM) if a group is empty or no value is finite.
+     */
+    static std::vector<std::shared_ptr<QCPGraph>> QtHistogram(
+        QCustomPlot* qPlot,
+        const std::shared_ptr<const FITStable>& tab,
+        const std::string& col,
+        const std::vector<RowSet>& groups,
         size_t nBins = 0,
         std::string OPTION = std::string());
 
@@ -1948,11 +1998,14 @@ public:
 
     /**
      * @brief Plot a row-filtered FITStable column as a line curve (y only, x = row index).
+     * @details x is the row's 1-based position in the whole table, not in @p rows.
+     *          Complex and vector columns follow the unfiltered overload: real part
+     *          on x and imaginary part on y, one graph per row for vector columns.
      * @param qPlot Target plot widget.
      * @param tab   Source table.
      * @param yCol  y-value column name.
      * @param rows  Row selector.
-     * @return Single-element vector containing the new @c QCPGraph.
+     * @return One @c QCPGraph, or one per selected row for a vector column.
      */
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot,
@@ -1966,7 +2019,9 @@ public:
      * @param xCol  x-value column name.
      * @param yCol  y-value column name.
      * @param rows  Row selector.
-     * @return Single-element vector containing the new @c QCPGraph.
+     * @return One @c QCPGraph, or one per selected row for vector columns.
+     * @throws FITSexception (BAD_DIMEN) if the columns differ in elements per row.
+     * @throws FITSexception (BAD_TFORM_DTYPE) if either column is complex.
      */
     static std::vector<std::shared_ptr<QCPGraph>> QtCurve(
         QCustomPlot* qPlot,

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <QFont>
+#include <QFontDatabase>
 #include <QString>
 
 // ===========================================================================
@@ -172,7 +173,9 @@ void QCustomContours::render(QCustomPlot* plot) const
                         label->position->setCoords(segX[pos], segY[pos]);
                         label->setRotation(ang * 180.0 / PI);
                         label->setText(QString::number(levels_[k], 'f', 3));
-                        label->setFont(QFont("monospace", labelFontSize_));
+                        QFont labelFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+                        labelFont.setPointSize(labelFontSize_);
+                        label->setFont(labelFont);
                         label->setColor(levelPen.color());
                     }
                 }

@@ -487,6 +487,180 @@ TEST_F(QtFITSviewerTest, multiple_plots_same_canvas)
     EXPECT_EQ(plot->graphCount(), 2);
 }
 
+// ===========================================================================
+// Group 10 — RowSet overloads, as driven by FITStable::where()
+// ===========================================================================
+
+namespace {
+
+/// Three rows: scalar S (1,2,3), 2-vectors V and W, complex C.
+static std::shared_ptr<const FITStable> makeMixedTable()
+{
+    auto tab = std::make_shared<FITStable>();
+
+    auto s = std::make_shared<FITScolumn<float>>("S", tfloat, "", 1);
+    for(float v : {1.f, 2.f, 3.f}) s->push_back(v);
+    tab->InsertColumn(s);
+
+    auto vec = std::make_shared<FITScolumn<FITSform::floatVector>>("V", tfloat, int64_t(2), int64_t(4), "", 2);
+    for(int r = 0; r < 3; ++r) vec->push_back(FITSform::floatVector{float(r), float(10 + r)});
+    tab->InsertColumn(vec);
+
+    auto w = std::make_shared<FITScolumn<FITSform::floatVector>>("W", tfloat, int64_t(2), int64_t(4), "", 3);
+    for(int r = 0; r < 3; ++r) w->push_back(FITSform::floatVector{float(100 + r), float(200 + r)});
+    tab->InsertColumn(w);
+
+    auto cplx = std::make_shared<FITScolumn<FITSform::complex>>("C", tcplx, "", 4);
+    for(int r = 0; r < 3; ++r) cplx->push_back(FITSform::complex{float(r), float(-r)});
+    tab->InsertColumn(cplx);
+
+    return tab;
+}
+
+} // anonymous namespace
+
+TEST_F(QtFITSviewerTest, RowSet_scatter_y_only_keeps_table_row_number)
+{
+    auto tab = makeMixedTable();
+    auto graphs = QtFITSviewer::QtScatter(plot, tab, "S", tab->where("S >= 2"));
+    ASSERT_EQ(graphs.size(), 1u);
+    ASSERT_EQ(graphs[0]->data()->size(), 2);
+    EXPECT_EQ(graphs[0]->lineStyle(), QCPGraph::lsNone);
+    // Rows 1 and 2 (0-based), plotted at their 1-based table position as when unfiltered.
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(0)->key, 2.0);
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(1)->key, 3.0);
+    EXPECT_FLOAT_EQ(static_cast<float>(graphs[0]->data()->at(1)->value), 3.f);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_scatter_complex_is_argand)
+{
+    auto tab = makeMixedTable();
+    auto graphs = QtFITSviewer::QtScatter(plot, tab, "C", tab->where("S == 3"));
+    ASSERT_EQ(graphs.size(), 1u);
+    ASSERT_EQ(graphs[0]->data()->size(), 1);
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(0)->key, 2.0);
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(0)->value, -2.0);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_scatter_vector_one_graph_per_selected_row)
+{
+    auto tab = makeMixedTable();
+    auto graphs = QtFITSviewer::QtScatter(plot, tab, "V", tab->where("S >= 2"));
+    ASSERT_EQ(graphs.size(), 2u);
+    EXPECT_EQ(graphs[0]->name().toStdString(), "Row #1");
+    EXPECT_EQ(graphs[1]->name().toStdString(), "Row #2");
+    ASSERT_EQ(graphs[1]->data()->size(), 2);
+    EXPECT_DOUBLE_EQ(graphs[1]->data()->at(1)->key, 1.0);
+    EXPECT_DOUBLE_EQ(graphs[1]->data()->at(1)->value, 12.0);
+    EXPECT_EQ(graphs[1]->lineStyle(), QCPGraph::lsNone);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_scatter_two_vector_columns)
+{
+    auto tab = makeMixedTable();
+    auto graphs = QtFITSviewer::QtScatter(plot, tab, "V", "W", tab->where("S == 2"));
+    ASSERT_EQ(graphs.size(), 1u);
+    ASSERT_EQ(graphs[0]->data()->size(), 2);
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(0)->key, 1.0);
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(0)->value, 101.0);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_scatter_scalar_against_vector_throws)
+{
+    auto tab = makeMixedTable();
+    EXPECT_THROW(QtFITSviewer::QtScatter(plot, tab, "S", "V", tab->where("S >= 1")), DSL::FITSexception);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_histogram_flattens_vector_and_complex)
+{
+    auto tab = makeMixedTable();
+    const RowSet rows = tab->where("S >= 2");
+
+    auto total = [](const std::shared_ptr<QCPGraph>& graph)
+    {
+        double sum = 0.0;
+        for(int i = 0; i < graph->data()->size(); ++i)
+            sum += graph->data()->at(i)->value;
+        return sum;
+    };
+
+    // Step-curve sum = 2*N (each bin height appears at both left and right edge).
+    EXPECT_DOUBLE_EQ(total(QtFITSviewer::QtHistogram(plot, tab, "S", rows, 4)[0]), 2.0 * 2);
+    EXPECT_DOUBLE_EQ(total(QtFITSviewer::QtHistogram(plot, tab, "V", rows, 4)[0]), 2.0 * 4);
+    EXPECT_DOUBLE_EQ(total(QtFITSviewer::QtHistogram(plot, tab, "C", rows, 4)[0]), 2.0 * 4);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_density_two_columns_rejects_vector)
+{
+    auto tab = makeMixedTable();
+    // Reads out of bounds if the vector column isn't caught.
+    EXPECT_THROW(QtFITSviewer::QtDensityPlot(plot, tab, "S", "V", tab->where("S >= 1")), DSL::FITSexception);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_density_single_column)
+{
+    auto tab = makeMixedTable();
+    const RowSet rows = tab->where("S >= 2");
+
+    auto complexMap = QtFITSviewer::QtDensityPlot(plot, tab, "C", rows, size_t(10), size_t(10));
+    ASSERT_NE(complexMap, nullptr);
+    EXPECT_DOUBLE_EQ(sumColorMap(complexMap.get()), 2.0);
+
+    auto vectorMap = QtFITSviewer::QtDensityPlot(plot, tab, "V", rows, size_t(10), size_t(10));
+    ASSERT_NE(vectorMap, nullptr);
+    EXPECT_DOUBLE_EQ(sumColorMap(vectorMap.get()), 2.0);
+
+    EXPECT_THROW(QtFITSviewer::QtDensityPlot(plot, tab, "S", rows, size_t(10), size_t(10)), DSL::FITSexception);
+}
+
+// ===========================================================================
+// Group 11 — QtHistogram on groups of rows: common bins
+// ===========================================================================
+
+TEST_F(QtFITSviewerTest, RowSet_groups_histogram_shares_bin_edges)
+{
+    auto tab = makeFloatTable("V", {0.f, 1.f, 2.f, 3.f, 10.f, 11.f});
+    const std::vector<RowSet> groups = {tab->where("V < 5"), tab->where("V >= 5")};
+
+    auto graphs = QtFITSviewer::QtHistogram(plot, tab, "V", groups, size_t(6));
+    ASSERT_EQ(graphs.size(), 2u);
+    ASSERT_EQ(graphs[0]->data()->size(), graphs[1]->data()->size());
+
+    const int last = graphs[0]->data()->size() - 1;
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(0)->key, 0.0);
+    EXPECT_DOUBLE_EQ(graphs[1]->data()->at(0)->key, 0.0)
+        << "Both groups must start at the overall minimum, not their own";
+    EXPECT_DOUBLE_EQ(graphs[0]->data()->at(last)->key, graphs[1]->data()->at(last)->key);
+
+    auto total = [](const std::shared_ptr<QCPGraph>& graph)
+    {
+        double sum = 0.0;
+        for(int i = 0; i < graph->data()->size(); ++i)
+            sum += graph->data()->at(i)->value;
+        return sum;
+    };
+    // Step-curve sum = 2*N (each bin height appears at both left and right edge).
+    EXPECT_DOUBLE_EQ(total(graphs[0]), 2.0 * 4);
+    EXPECT_DOUBLE_EQ(total(graphs[1]), 2.0 * 2);
+}
+
+TEST_F(QtFITSviewerTest, RowSet_groups_histogram_auto_bins_are_common)
+{
+    auto tab = makeFloatTable("V", {0.f, 1.f, 2.f, 3.f, 10.f, 11.f});
+    const std::vector<RowSet> groups = {tab->where("V < 5"), tab->where("V >= 5")};
+
+    auto graphs = QtFITSviewer::QtHistogram(plot, tab, "V", groups);
+    ASSERT_EQ(graphs.size(), 2u);
+    EXPECT_EQ(graphs[0]->data()->size(), graphs[1]->data()->size());
+}
+
+TEST_F(QtFITSviewerTest, RowSet_groups_histogram_empty_group_throws)
+{
+    auto tab = makeFloatTable("V", {0.f, 1.f});
+    const std::vector<RowSet> groups = {tab->where("V < 5"), tab->where("V > 5")};
+    EXPECT_THROW(QtFITSviewer::QtHistogram(plot, tab, "V", groups), DSL::FITSexception);
+}
+
 #endif // __WITH_QT__
 
 // ===========================================================================

@@ -1789,8 +1789,14 @@ static std::vector<double> _colToDoubles(
     auto fill = [&](const auto& vec)
     {
         if(rows)
+        {
+            // values<T>() is empty when the column holds vectors: indexing it would read out of bounds.
+            if(!rows->empty() && rows->indices().back() >= vec.size())
+                throw FITSexception(BAD_TFORM_DTYPE, "QtFITSviewer", caller,
+                    "Column '"+col+"' is not a scalar column.");
             for(size_t idx : rows->indices())
                 out.push_back(static_cast<double>(vec[idx]));
+        }
         else
             for(const auto& x : vec) out.push_back(static_cast<double>(x));
     };
@@ -1807,9 +1813,114 @@ static std::vector<double> _colToDoubles(
         case DSL::dtype::tulonglong: fill(form.values<uint64_t>());  break;
         case DSL::dtype::tfloat:     fill(form.values<float>());     break;
         case DSL::dtype::tdouble:    fill(form.values<double>());    break;
-        default: break;
+        default:
+            throw FITSexception(BAD_TFORM_DTYPE, "QtFITSviewer", caller,
+                "Column '"+col+"': type "+form.getDataType(t)+" is not a real scalar type.");
     }
     return out;
+}
+
+static bool _isComplex(const FITSform& form)
+{
+    return form.getType() == DSL::dtype::tcplx || form.getType() == DSL::dtype::tdbcplx;
+}
+
+/// Collect a vector and/or complex column row by row: each selected row yields its
+/// elements, complex values contributing their real then imaginary part.
+static std::vector<std::vector<double>> _rowsToElements(
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    const char* caller,
+    const RowSet& rows)
+{
+    const auto& form = *tab->getColumn(col);
+    const DSL::dtype t = form.getType();
+
+    std::vector<std::vector<double>> out;
+    out.reserve(rows.indices().size());
+
+    // values<T>() is empty when the payload isn't T: indexing it would read out of bounds.
+    auto checkRows = [&](const auto& vec)
+    {
+        if(!rows.empty() && rows.indices().back() >= vec.size())
+            throw FITSexception(BAD_TFORM_DTYPE, "QtFITSviewer", caller,
+                "Column '"+col+"' does not hold the data its type "+form.getDataType(t)+" announces.");
+    };
+
+    auto fillVector = [&](const auto& vec)
+    {
+        checkRows(vec);
+        for(size_t idx : rows.indices())
+            out.emplace_back(vec[idx].begin(), vec[idx].end());
+    };
+
+    auto fillCplxScalar = [&](const auto& vec)
+    {
+        checkRows(vec);
+        for(size_t idx : rows.indices())
+            out.push_back({static_cast<double>(vec[idx].first), static_cast<double>(vec[idx].second)});
+    };
+
+    auto fillCplxVector = [&](const auto& vec)
+    {
+        checkRows(vec);
+        for(size_t idx : rows.indices())
+        {
+            std::vector<double> elems;
+            elems.reserve(2 * vec[idx].size());
+            for(const auto& c : vec[idx])
+            {
+                elems.push_back(static_cast<double>(c.first));
+                elems.push_back(static_cast<double>(c.second));
+            }
+            out.push_back(std::move(elems));
+        }
+    };
+
+    const bool isScalar = (form.getNelem() == 1);
+
+    switch(t)
+    {
+        case DSL::dtype::tshort:     fillVector(form.values<FITSform::int16Vector>());   break;
+        case DSL::dtype::tushort:    fillVector(form.values<FITSform::uint16Vector>());  break;
+        case DSL::dtype::tint:
+        case DSL::dtype::tlong:      fillVector(form.values<FITSform::int32Vector>());   break;
+        case DSL::dtype::tuint:
+        case DSL::dtype::tulong:     fillVector(form.values<FITSform::uint32Vector>());  break;
+        case DSL::dtype::tlonglong:  fillVector(form.values<FITSform::int64Vector>());   break;
+        case DSL::dtype::tulonglong: fillVector(form.values<FITSform::uint64Vector>());  break;
+        case DSL::dtype::tfloat:     fillVector(form.values<FITSform::floatVector>());   break;
+        case DSL::dtype::tdouble:    fillVector(form.values<FITSform::doubleVector>());  break;
+        case DSL::dtype::tcplx:
+            if(isScalar) fillCplxScalar(form.values<FITSform::complex>());
+            else         fillCplxVector(form.values<FITSform::complexVector>());
+            break;
+        case DSL::dtype::tdbcplx:
+            if(isScalar) fillCplxScalar(form.values<FITSform::dblcomplex>());
+            else         fillCplxVector(form.values<FITSform::dblcomplexVector>());
+            break;
+        default:
+            throw FITSexception(BAD_TFORM_DTYPE, "QtFITSviewer", caller,
+                "Column '"+col+"': type "+form.getDataType(t)+" is not a supported numeric type.");
+    }
+    return out;
+}
+
+/// Values of the selected rows to histogram: vector and complex columns are
+/// flattened, as in the unfiltered overload.
+static std::vector<double> _rowsToHistValues(
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    const RowSet& rows)
+{
+    const auto& form = *tab->getColumn(col);
+    if(!_isComplex(form) && form.getNelem() == 1)
+        return _colToDoubles(tab, col, "QtHistogram", &rows);
+
+    std::vector<double> data;
+    for(const auto& elems : _rowsToElements(tab, col, "QtHistogram", rows))
+        data.insert(data.end(), elems.begin(), elems.end());
+    return data;
 }
 
 /// Collect a ColumnHandle's data as vector<double> (uses ColumnHandle::all<T>().data()).
@@ -1976,7 +2087,8 @@ std::shared_ptr<QCPColorMap> QtFITSviewer::_QtDensityCore(
 std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
     QCustomPlot* qPlot,
     std::vector<double> data, size_t nBins,
-    uint8_t logFlag, const std::string& OPTION)
+    uint8_t logFlag, const std::string& OPTION,
+    const std::pair<double,double>* range)
 {
     if(data.empty())
         throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","_QtHistogramCore","No data provided.");
@@ -2011,8 +2123,8 @@ std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
             "All values were filtered out (non-positive for log x-axis).");
 
     std::sort(vals.begin(), vals.end());
-    const double vMin = vals.front();
-    const double vMax = vals.back();
+    const double vMin = range ? range->first  : vals.front();
+    const double vMax = range ? range->second : vals.back();
     const double vRange   = (vMax > vMin) ? (vMax - vMin) : 1.0;
     const double binWidth = vRange / static_cast<double>(nBins-1);
 
@@ -2239,6 +2351,38 @@ std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
 
 std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
     QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    const RowSet& rows,
+    size_t nBinsX, size_t nBinsY,
+    uint8_t logFlag)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtDensityPlot","Null FITStable pointer.");
+
+    const auto& form = *tab->getColumn(col);
+    const int64_t nElem = form.getNelem();
+    if(_isComplex(form) ? nElem != 1 : nElem != 2)
+        throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtDensityPlot",
+            "Single-column QtDensityPlot requires a complex column (TFORM 'C' or 'M') or "
+            "a 2-element vector column. Column '"+col+"' has TFORM '"+
+            form.getDataType(form.getType())+"' with "+std::to_string(nElem)+" element(s) per row.");
+
+    // Real/imaginary parts or elem[0]/elem[1]: two values per row either way.
+    std::vector<double> xs, ys, zs;
+    xs.reserve(rows.size());
+    ys.reserve(rows.size());
+    for(const auto& elems : _rowsToElements(tab, col, "QtDensityPlot", rows))
+    {
+        xs.push_back(elems.at(0));
+        ys.push_back(elems.at(1));
+    }
+
+    return _QtDensityCore(qPlot, std::move(xs), std::move(ys), std::move(zs), nBinsX, nBinsY, logFlag);
+}
+
+std::shared_ptr<QCPColorMap> QtFITSviewer::QtDensityPlot(
+    QCustomPlot* qPlot,
     ColumnHandle xHandle, ColumnHandle yHandle,
     size_t nBinsX, size_t nBinsY,
     uint8_t logFlag)
@@ -2330,10 +2474,57 @@ std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
     if(!tab)
         throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtHistogram","Null FITStable pointer.");
 
-    // For RowSet-filtered histogram we collect values using _colToDoubles
-    // (scalar column only; vector/complex columns fall through to the unfiltered overload)
-    auto data = _colToDoubles(tab, col, "QtHistogram", &rows);
-    return {_QtHistogramCore(qPlot, std::move(data), nBins, 0, OPTION)};
+    return {_QtHistogramCore(qPlot, _rowsToHistValues(tab, col, rows), nBins, 0, OPTION)};
+}
+
+std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
+    QCustomPlot* qPlot,
+    const std::shared_ptr<const FITStable>& tab,
+    const std::string& col,
+    const std::vector<RowSet>& groups,
+    size_t nBins,
+    std::string OPTION)
+{
+    if(!tab)
+        throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtHistogram","Null FITStable pointer.");
+
+    std::vector<std::vector<double>> data;
+    data.reserve(groups.size());
+    double vMin = std::numeric_limits<double>::infinity();
+    double vMax = -vMin;
+    size_t nValues = 0;
+
+    for(const RowSet& rows : groups)
+    {
+        data.push_back(_rowsToHistValues(tab, col, rows));
+        if(data.back().empty())
+            throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","QtHistogram","A group of rows is empty.");
+
+        nValues += data.back().size();
+        for(double v : data.back())
+        {
+            if(std::isfinite(v))
+            {
+                vMin = std::min(vMin, v);
+                vMax = std::max(vMax, v);
+            }
+        }
+    }
+    if(vMin > vMax)
+        throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","QtHistogram","Column '"+col+"' has no finite value in these rows.");
+
+    // Resolved here: _QtHistogramCore would otherwise pick a bin count per group.
+    if(nBins == 0)
+        nBins = static_cast<size_t>(std::max(10.0,
+            std::ceil(1.0 + std::log2(static_cast<double>(nValues)))));
+
+    const std::pair<double,double> range(vMin, vMax);
+
+    std::vector<std::shared_ptr<QCPGraph>> graphs;
+    graphs.reserve(data.size());
+    for(auto& values : data)
+        graphs.push_back(_QtHistogramCore(qPlot, std::move(values), nBins, 0, OPTION, &range));
+    return graphs;
 }
 
 std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
@@ -2357,8 +2548,64 @@ std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
 {
     if(!tab)
         throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtCurve","Null FITStable pointer.");
-    auto ys = _colToDoubles(tab, yCol, "QtCurve", &rows);
-    return QtCurve(qPlot, std::move(ys));
+
+    const auto& form = *tab->getColumn(yCol);
+    const bool isComplex = _isComplex(form);
+    const bool isScalar  = (form.getNelem() == 1);
+
+    if(!isComplex && isScalar)
+    {
+        // x keeps the table's 1-based row number, as in the unfiltered overload,
+        // so a selected row stays where it is on the axis.
+        std::vector<double> xs;
+        xs.reserve(rows.size());
+        for(size_t idx : rows.indices())
+            xs.push_back(static_cast<double>(idx + 1));
+        auto ys = _colToDoubles(tab, yCol, "QtCurve", &rows);
+        return QtCurve(qPlot, std::move(xs), std::move(ys));
+    }
+
+    const auto elems = _rowsToElements(tab, yCol, "QtCurve", rows);
+
+    if(isComplex && isScalar)
+    {
+        // Argand diagram: real part on x, imaginary part on y.
+        std::vector<double> xs, ys;
+        xs.reserve(elems.size());
+        ys.reserve(elems.size());
+        for(const auto& e : elems)
+        {
+            xs.push_back(e.at(0));
+            ys.push_back(e.at(1));
+        }
+        return QtCurve(qPlot, std::move(xs), std::move(ys));
+    }
+
+    // Vector column: one graph per row.
+    std::vector<std::shared_ptr<QCPGraph>> curves;
+    curves.reserve(elems.size());
+    for(size_t i = 0; i < elems.size(); ++i)
+    {
+        std::vector<double> xs, ys;
+        if(isComplex)
+        {
+            for(size_t j = 0; j + 1 < elems[i].size(); j += 2)
+            {
+                xs.push_back(elems[i][j]);
+                ys.push_back(elems[i][j + 1]);
+            }
+        }
+        else
+        {
+            ys = elems[i];
+            xs.resize(ys.size());
+            std::iota(xs.begin(), xs.end(), 0.0);
+        }
+        auto newCurves = QtCurve(qPlot, std::move(xs), std::move(ys));
+        newCurves[0]->setName(QString::fromStdString("Row #"+std::to_string(rows.indices()[i])));
+        curves.push_back(newCurves[0]);
+    }
+    return curves;
 }
 
 std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
@@ -2368,9 +2615,36 @@ std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtCurve(
 {
     if(!tab)
         throw FITSexception(SEEK_ERROR,"QtFITSviewer","QtCurve","Null FITStable pointer.");
-    auto xs = _colToDoubles(tab, xCol, "QtCurve", &rows);
-    auto ys = _colToDoubles(tab, yCol, "QtCurve", &rows);
-    return QtCurve(qPlot, std::move(xs), std::move(ys));
+
+    const auto& xForm = *tab->getColumn(xCol);
+    const auto& yForm = *tab->getColumn(yCol);
+
+    if(xForm.getNelem() != yForm.getNelem())
+        throw FITSexception(BAD_DIMEN,"QtFITSviewer","QtCurve","Columns "+xCol+" and "+yCol+" have different number of elements ("+std::to_string(xForm.getNelem())+" vs "+std::to_string(yForm.getNelem())+").");
+
+    if(_isComplex(xForm) || _isComplex(yForm))
+        throw FITSexception(BAD_TFORM_DTYPE,"QtFITSviewer","QtCurve",xForm.getDataType(xForm.getType())+" combined to "+yForm.getDataType(yForm.getType())+"  is not supported for plotting.");
+
+    if(xForm.getNelem() == 1)
+    {
+        auto xs = _colToDoubles(tab, xCol, "QtCurve", &rows);
+        auto ys = _colToDoubles(tab, yCol, "QtCurve", &rows);
+        return QtCurve(qPlot, std::move(xs), std::move(ys));
+    }
+
+    // Vector columns: one graph per row.
+    auto xElems = _rowsToElements(tab, xCol, "QtCurve", rows);
+    auto yElems = _rowsToElements(tab, yCol, "QtCurve", rows);
+
+    std::vector<std::shared_ptr<QCPGraph>> curves;
+    curves.reserve(xElems.size());
+    for(size_t i = 0; i < xElems.size(); ++i)
+    {
+        auto newCurves = QtCurve(qPlot, std::move(xElems[i]), std::move(yElems[i]));
+        newCurves[0]->setName(QString::fromStdString("Row #"+std::to_string(rows.indices()[i])));
+        curves.push_back(newCurves[0]);
+    }
+    return curves;
 }
 
 std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtScatter(
