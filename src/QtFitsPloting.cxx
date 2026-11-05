@@ -325,12 +325,13 @@ void QtFITSviewer::Overlay(QCPAxisRect* qPlot, const  std::shared_ptr<const FITS
     {
         for(int r = 0; r < parentGrid->rowCount(); ++r)
             for(int c = 0; c < parentGrid->columnCount(); ++c)
-                if(parentGrid->element(r, c) == qPlot)
+                if(parentGrid->hasElement(r, c) && parentGrid->element(r, c) == qPlot)
                     { rectRow = r; rectCol = c; }
     }
     const int scaleCol = rectCol + 1;
 
-    QCPLayoutElement* existing = parentGrid ? parentGrid->element(rectRow, scaleCol) : nullptr;
+    QCPLayoutElement* existing = (parentGrid && parentGrid->hasElement(rectRow, scaleCol))
+                                     ? parentGrid->element(rectRow, scaleCol) : nullptr;
     if(!existing)
     {
         colorScale = new QCPColorScale(qPlot->parentPlot());
