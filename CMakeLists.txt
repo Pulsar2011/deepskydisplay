@@ -231,6 +231,10 @@ set(DSTfits_MIN_VERSION 1.5)
 # Only look in DeepSkyROOT: the RPATH points there, and CMake would otherwise fall back on another
 # install (e.g. found through PATH) when the one in DeepSkyROOT is too old.
 find_package(DSTfits ${DSTfits_MIN_VERSION} REQUIRED PATHS ${DeepSkyROOT} NO_DEFAULT_PATH)
+# Imported targets are system targets by default, which turns ${DeepSkyROOT}/include into -isystem:
+# it then loses its -I priority over other installed copies and hides warnings from our own headers.
+# Needs CMake >= 3.25; older versions ignore the property and keep -isystem.
+set_target_properties(DSTfits::DSTfits PROPERTIES SYSTEM OFF)
 message("-- ${Green}Found${ColourReset} DSTfits ${DSTfits_VERSION}: ${DSTfits_DIR}")
 
 find_library(cfitsio NAMES cfitsio HINTS ${DeepSkyROOT}/lib)

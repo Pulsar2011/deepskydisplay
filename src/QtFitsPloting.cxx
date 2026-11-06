@@ -2089,7 +2089,8 @@ std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
     QCustomPlot* qPlot,
     std::vector<double> data, size_t nBins,
     uint8_t logFlag, const std::string& OPTION,
-    const std::pair<double,double>* range)
+    const std::pair<double,double>* range,
+    bool redraw)
 {
     if(data.empty())
         throw FITSexception(BAD_ELEM_NUM,"QtFITSviewer","_QtHistogramCore","No data provided.");
@@ -2203,6 +2204,9 @@ std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
     qPlot->yAxis->setLabel("count");
 
     applyPlotOptions(graph.get(), OPTION);
+
+    if(!redraw)
+        return graph;
 
     QMetaObject::invokeMethod(qPlot, [qPlot]() mutable
     {
@@ -2523,8 +2527,8 @@ std::vector<std::shared_ptr<QCPGraph>> QtFITSviewer::QtHistogram(
 
     std::vector<std::shared_ptr<QCPGraph>> graphs;
     graphs.reserve(data.size());
-    for(auto& values : data)
-        graphs.push_back(_QtHistogramCore(qPlot, std::move(values), nBins, 0, OPTION, &range));
+    for(size_t i = 0; i < data.size(); ++i)
+        graphs.push_back(_QtHistogramCore(qPlot, std::move(data[i]), nBins, 0, OPTION, &range, i + 1 == data.size()));
     return graphs;
 }
 

@@ -781,13 +781,17 @@ protected:
      * @param OPTION Style option string forwarded to @c applyPlotOptions.
      * @param range  Optional {min, max} the bins span instead of those of @p data,
      *               for histograms that must share their bin edges.
+     * @param redraw If @c false, leaves the axes and the drawing to a later call,
+     *               for a series of histograms that would otherwise redraw all the
+     *               previous ones each time.
      * @return Non-owning @c shared_ptr to the new @c QCPGraph.
      */
     static std::shared_ptr<QCPGraph> _QtHistogramCore(
         QCustomPlot* qPlot,
         std::vector<double> data, size_t nBins,
         uint8_t logFlag, const std::string& OPTION,
-        const std::pair<double,double>* range = nullptr);
+        const std::pair<double,double>* range = nullptr,
+        bool redraw = true);
 
     // -----------------------------------------------------------------------
     // Template data-collection helpers (iterate FITStable rows into double vectors)
