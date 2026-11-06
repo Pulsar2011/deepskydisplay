@@ -1,5 +1,5 @@
 deepskydisplay
-Copyright (C) 2026  William <your full name / institution>
+Copyright (C) 2026  William Gillard
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -10,8 +10,8 @@ This program is distributed in the hope that it will be useful, but
 WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
 Public License for more details. You should have received a copy of the
-GNU General Public License along with this program (see the LICENSE
-file). If not, see <https://www.gnu.org/licenses/>.
+GNU General Public License along with this program (see
+`LICENSES/GPL-3.0.txt`). If not, see <https://www.gnu.org/licenses/>.
 
 -------------------------------------------------------------------------
 THIRD-PARTY COMPONENTS

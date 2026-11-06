@@ -227,13 +227,11 @@ file(GLOB UTIL_SRC "util/*.cxx")
 set(HEADER_FILES ${CORE_HEADER} ${CMAKE_SOURCE_DIR}/src/QtFITSviewer.h ${CMAKE_CURRENT_BINARY_DIR}/DSTdisplay_autogen/include/ui_QtFITSviewer.h)
 
 link_directories(${DeepSkyROOT}/lib)
-find_library(DSTfits NAMES DSTfits HINTS ${DeepSkyROOT}/lib)
-if(DSTfits)
-    include_directories(${DeepSkyROOT}/include)
-    message("-- ${Green}Found${ColourReset} DSTfits: ${DSTfits}")
-else()
-    message(WARNING "libDSTfits not found; install the library")
-endif()
+set(DSTfits_MIN_VERSION 1.5)
+# Only look in DeepSkyROOT: the RPATH points there, and CMake would otherwise fall back on another
+# install (e.g. found through PATH) when the one in DeepSkyROOT is too old.
+find_package(DSTfits ${DSTfits_MIN_VERSION} REQUIRED PATHS ${DeepSkyROOT} NO_DEFAULT_PATH)
+message("-- ${Green}Found${ColourReset} DSTfits ${DSTfits_VERSION}: ${DSTfits_DIR}")
 
 find_library(cfitsio NAMES cfitsio HINTS ${DeepSkyROOT}/lib)
 if(cfitsio)
@@ -333,12 +331,24 @@ add_library(
     ${version_file}
 )
 
-target_link_libraries(DSTdisplay ${DSTfits} ${QT_LIBS})
+target_link_libraries(DSTdisplay DSTfits::DSTfits ${QT_LIBS})
 
 set_target_properties(DSTdisplay PROPERTIES
     BUILD_RPATH   "${DeepSkyROOT}/lib"
     INSTALL_RPATH "${DeepSkyROOT}/lib"
 )
+
+# Propagate the git tag to the library. A clone without a reachable tag (e.g. a shallow CI clone)
+# has no numeric version: the library stays unversioned and no CMake package is installed.
+if(VERSION MATCHES "^v[0-9]+\\.[0-9]+\\.[0-9]+")
+    set(DSTdisplay_NUMERIC_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
+    set_target_properties(DSTdisplay PROPERTIES
+        VERSION   "${DSTdisplay_NUMERIC_VERSION}"
+        SOVERSION "${VERSION_MAJOR}"
+    )
+else()
+    message(WARNING "No version tag found (git describe gave '${VERSION}'): DSTdisplay will not be versioned")
+endif()
 
 install(FILES include/DSTdisplay/QCustomContours.h
         DESTINATION include/DSTdisplay)
@@ -359,6 +369,7 @@ CMakeFiles
 ./build/lib
 ./build/exe
 ./build/test
+./build/cmake
 ./doc
 ./googletest/CMakeFiles
 ./googletest/Makefile
@@ -391,4 +402,42 @@ if(CMAKE_INSTALL_PREFIX)
 		LIBRARY DESTINATION lib
 		ARCHIVE DESTINATION lib
     )
+
+    if(DSTdisplay_NUMERIC_VERSION)
+        # CMake package, so that dependent projects can call find_package(DSTdisplay <version>)
+        include(CMakePackageConfigHelpers)
+        set(DSTdisplay_CMAKE_DIR lib/cmake/DSTdisplay)
+        configure_package_config_file(
+            ${CMAKE_SOURCE_DIR}/modules/DSTdisplayConfig.cmake.in
+            ${CMAKE_CURRENT_BINARY_DIR}/build/cmake/DSTdisplayConfig.cmake
+            INSTALL_DESTINATION ${DSTdisplay_CMAKE_DIR}
+        )
+        write_basic_package_version_file(
+            ${CMAKE_CURRENT_BINARY_DIR}/build/cmake/DSTdisplayConfigVersion.cmake
+            VERSION ${DSTdisplay_NUMERIC_VERSION}
+            COMPATIBILITY AnyNewerVersion
+        )
+        INSTALL(FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/build/cmake/DSTdisplayConfig.cmake
+            ${CMAKE_CURRENT_BINARY_DIR}/build/cmake/DSTdisplayConfigVersion.cmake
+            DESTINATION ${DSTdisplay_CMAKE_DIR}
+        )
+
+        # CMake never removes files from the install directory: drop the versioned libraries
+        # (libDSTdisplay.1.2.3.dylib, libDSTdisplay.so.1.2.3, ...) left behind by previous installs.
+        install(CODE "set(DSTdisplay_KEEP_VERSIONS \"${DSTdisplay_NUMERIC_VERSION};${VERSION_MAJOR}\")")
+        install(CODE [[
+            file(GLOB _dsd_libs "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/libDSTdisplay.*")
+            foreach(_dsd_lib ${_dsd_libs})
+                get_filename_component(_dsd_name "${_dsd_lib}" NAME)
+                if(_dsd_name MATCHES "^libDSTdisplay\\.(so\\.)?([0-9.]*[0-9])(\\.dylib)?$")
+                    list(FIND DSTdisplay_KEEP_VERSIONS "${CMAKE_MATCH_2}" _dsd_keep)
+                    if(_dsd_keep EQUAL -1)
+                        message(STATUS "Removing old library: ${_dsd_lib}")
+                        file(REMOVE "${_dsd_lib}")
+                    endif()
+                endif()
+            endforeach()
+        ]])
+    endif()
 endif(CMAKE_INSTALL_PREFIX)

@@ -4,7 +4,7 @@
 //
 //  Created by GILLARD William
 //  Centre de Physique des Particules de Marseille
-//  Licensed under CC BY-NC 4.0
+//  Licensed under the GNU GPL v3 or later (see LICENSE.md)
 //
 
 #pragma once

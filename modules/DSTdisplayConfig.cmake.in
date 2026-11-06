@@ -1,0 +1,25 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(DSTfits @DSTfits_MIN_VERSION@ HINTS "${PACKAGE_PREFIX_DIR}")
+
+set(DSTdisplay_QT_LIBS "@QT_LIBS@")
+if(DSTdisplay_QT_LIBS)
+    find_dependency(Qt6 COMPONENTS Widgets Core Gui PrintSupport Concurrent)
+endif()
+
+if(NOT TARGET DSTdisplay::DSTdisplay)
+    add_library(DSTdisplay::DSTdisplay SHARED IMPORTED)
+    set_target_properties(DSTdisplay::DSTdisplay PROPERTIES
+        IMPORTED_LOCATION "${PACKAGE_PREFIX_DIR}/lib/libDSTdisplay${CMAKE_SHARED_LIBRARY_SUFFIX}"
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/include"
+        INTERFACE_LINK_LIBRARIES "DSTfits::DSTfits;${DSTdisplay_QT_LIBS}"
+    )
+    if(DSTdisplay_QT_LIBS)
+        set_target_properties(DSTdisplay::DSTdisplay PROPERTIES
+            INTERFACE_COMPILE_DEFINITIONS "__WITH_QT__"
+        )
+    endif()
+endif()
+
+check_required_components(DSTdisplay)
