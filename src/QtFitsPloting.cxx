@@ -2126,7 +2126,7 @@ std::shared_ptr<QCPGraph> QtFITSviewer::_QtHistogramCore(
     const double vMin = range ? range->first  : vals.front();
     const double vMax = range ? range->second : vals.back();
     const double vRange   = (vMax > vMin) ? (vMax - vMin) : 1.0;
-    const double binWidth = vRange / static_cast<double>(nBins-1);
+    const double binWidth = (nBins > 1) ? vRange / static_cast<double>(nBins-1) : vRange;
 
     // Bin counts
     std::vector<double> counts(nBins, 0.0);

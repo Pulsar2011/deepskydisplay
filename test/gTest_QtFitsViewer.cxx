@@ -252,6 +252,15 @@ TEST_F(QtFITSviewerTest, QtHistogram_vector_lsImpulse_style)
         << "Histogram uses a step-curve drawn with lsLine";
 }
 
+TEST_F(QtFITSviewerTest, QtHistogram_vector_single_bin_has_finite_edges)
+{
+    std::vector<double> data = {1.0, 2.0, 3.0};
+    auto graphs = QtFITSviewer::QtHistogram(plot, data, 1);
+    ASSERT_EQ(graphs.size(), 1u);
+    for(int i = 0; i < graphs[0]->data()->size(); ++i)
+        EXPECT_TRUE(std::isfinite(graphs[0]->data()->at(i)->key));
+}
+
 TEST_F(QtFITSviewerTest, QtHistogram_vector_total_count)
 {
     // All N values in one hot bin. Step-curve emits each bin count twice (left + right
